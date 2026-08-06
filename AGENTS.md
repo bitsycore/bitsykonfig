@@ -23,8 +23,13 @@ This file provides guidance to AI agents (Claude, Copilot, Codex, etc.) working 
 # Force re-run (skip UP-TO-DATE / cache)
 ./gradlew functionalTest --rerun-tasks
 
-# Publish to GitHub Packages (requires gpr.user + gpr.key in ~/.gradle/gradle.properties)
-./gradlew publish
+# Publish to GitHub Packages only (requires gpr.user + gpr.key in ~/.gradle/gradle.properties)
+./gradlew publishAllPublicationsToGitHubPackagesRepository
+
+# Publish to maven.bitsycore.com only (requires bitsycore.maven.user + bitsycore.maven.token)
+./gradlew publishAllPublicationsToBitsycoreRepository
+
+# CI: pushing a version tag (e.g. 0.6.0) publishes to BOTH repos and creates the GitHub release
 
 # Publish only the plugin marker artifact (fixes resolution without re-uploading the jar)
 ./gradlew publishKonfigPluginMarkerMavenPublicationToGitHubPackagesRepository
@@ -123,11 +128,12 @@ action can emit structured lifecycle/warning/error log messages without re-runni
 - **Plugin ID:** `com.bitsycore.konfig`
 - **Group:** `com.bitsycore`
 - **Artifact:** `konfig-gradle-plugin`
-- **Version:** set via `konfig.version` in `gradle.properties` (currently `0.5.0`)
-- **Repository:** `https://maven.pkg.github.com/bitsycore/bitsykonfig-gradle-plugin`
+- **Version:** set via `konfig.version` in `gradle.properties` (currently `0.6.0`)
+- **Repositories:** `https://maven.bitsycore.com/releases` (primary, no auth) and
+  `https://maven.pkg.github.com/bitsycore/bitsykonfig-gradle-plugin` (fallback, needs PAT)
 - **JVM target:** 17 (set via `sourceCompatibility` + `KotlinCompile.compilerOptions.jvmTarget`,
   no toolchain — avoids requiring a specific JDK installation)
-- **AGP dependency:** `compileOnly("com.android.tools.build:gradle:8.0.0")` — never leaked to consumers
+- **AGP dependency:** `compileOnly("com.android.tools.build:gradle:8.7.3")` — never leaked to consumers
 
 ### Publishing
 
@@ -142,9 +148,12 @@ Two Maven publications are created automatically by the `kotlin-dsl` + `gradlePl
 the auto-wired publication and breaks the marker. Always configure existing publications via
 `publications.withType<MavenPublication>().configureEach { ... }`.
 
-Credentials are read from Gradle properties `gpr.user` / `gpr.key`, falling back to environment
-variables `GPR_USER` / `GPR_KEY`. Store them in `~/.gradle/gradle.properties`, never in the
-project `gradle.properties`.
+Credentials are read from Gradle properties `gpr.user` / `gpr.key` (GitHub Packages) and
+`bitsycore.maven.user` / `bitsycore.maven.token` (maven.bitsycore.com), falling back to
+environment variables (`GPR_USER` / `GPR_KEY` / `BITSYCORE_MAVEN_USER` / `BITSYCORE_MAVEN_TOKEN`).
+Store them in `~/.gradle/gradle.properties`, never in the project `gradle.properties`.
+CI uses the repo secrets `BITSYCORE_MAVEN_USER` / `BITSYCORE_MAVEN_TOKEN` and the built-in
+`GITHUB_TOKEN`.
 
 ### Logging levels used in GenerateKonfigTask
 

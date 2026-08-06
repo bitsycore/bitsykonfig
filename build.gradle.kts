@@ -46,7 +46,9 @@ configurations[functionalTest.implementationConfigurationName]
 
 dependencies {
 	compileOnly("org.jetbrains.kotlin:kotlin-gradle-plugin:$embeddedKotlinVersion")
-	compileOnly("com.android.tools.build:gradle:8.0.0")
+	// 8.7+ needed for the variant Sources API (variant.sources.kotlin) used instead of
+	// the AndroidSourceSet DSL (whose provider support is removed by AGP 9.2).
+	compileOnly("com.android.tools.build:gradle:8.7.3")
 	testImplementation(kotlin("test"))
     add("functionalTestImplementation", gradleTestKit())
 }
@@ -118,6 +120,16 @@ publishing {
             credentials {
                 username = prop("gpr.user")
                 password = prop("gpr.key")
+            }
+        }
+
+        maven {
+            name = "Bitsycore"
+            url  = uri("https://maven.bitsycore.com/releases")
+            credentials {
+                // props resolve from gradle.properties or env BITSYCORE_MAVEN_USER / BITSYCORE_MAVEN_TOKEN
+                username = prop("bitsycore.maven.user")
+                password = prop("bitsycore.maven.token")
             }
         }
     }

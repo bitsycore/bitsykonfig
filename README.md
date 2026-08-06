@@ -7,16 +7,31 @@ Fields can be constant, overridden per build type (debug/release), or scoped to 
 **Plugin ID:** `com.bitsycore.konfig`  
 **Group:** `com.bitsycore`  
 **Artifact:** `konfig-gradle-plugin`  
-**Version:** `0.5.0`  
+**Version:** `0.6.0`  
 **JVM target:** 17
 
 ---
 
 ## Setup
 
-### 1. Add the GitHub Packages repository
+### 1. Configure plugin resolution
 
-The plugin is published to GitHub Packages. Both a `gpr.user` (GitHub username) and `gpr.key` (Personal Access Token with `read:packages` scope) are required.
+The plugin is published to **maven.bitsycore.com** (no authentication) and to
+**GitHub Packages** as a fallback (requires a GitHub PAT with `read:packages`).
+
+`settings.gradle.kts`:
+
+```kotlin
+pluginManagement {
+    repositories {
+        maven("https://maven.bitsycore.com/releases")
+        gradlePluginPortal()
+    }
+}
+```
+
+<details>
+<summary>GitHub Packages fallback (authenticated)</summary>
 
 Store credentials in `~/.gradle/gradle.properties` — never commit them:
 
@@ -24,12 +39,6 @@ Store credentials in `~/.gradle/gradle.properties` — never commit them:
 gpr.user=YOUR_GITHUB_USERNAME
 gpr.key=YOUR_GITHUB_PERSONAL_ACCESS_TOKEN
 ```
-
-Alternatively export environment variables `GPR_USER` / `GPR_KEY` and the build script will pick them up automatically.
-
-### 2. Configure plugin resolution
-
-`settings.gradle.kts`:
 
 ```kotlin
 pluginManagement {
@@ -46,14 +55,15 @@ pluginManagement {
     }
 }
 ```
+</details>
 
-### 3. Declare the plugin
+### 2. Declare the plugin
 
 Using a version catalog (`libs.versions.toml`):
 
 ```toml
 [versions]
-konfig = "0.5.0"
+konfig = "0.6.0"
 
 [plugins]
 konfig = { id = "com.bitsycore.konfig", version.ref = "konfig" }
@@ -71,7 +81,7 @@ Or inline:
 
 ```kotlin
 plugins {
-    id("com.bitsycore.konfig") version "0.5.0"
+    id("com.bitsycore.konfig") version "0.6.0"
 }
 ```
 
@@ -201,6 +211,38 @@ dimension("env", objectNameOverride = "Environment", defaultTo = "prod") { ... }
 
 If no override is given, the object name is derived from the dimension name via CamelCase conversion (`my-env` → `MyEnv`).
 
+### Flat dimensions
+
+`flatDimension` works exactly like `dimension`, but its fields are generated
+directly at the root of the konfig object instead of a nested object. The
+active variant is exposed as `<NAME>_VARIANT`:
+
+```kotlin
+konfig {
+    flatDimension("env", defaultTo = "prod") {
+        variant("prod") { field("BASE_URL", "https://prod.example.com") }
+        variant("dev")  { field("BASE_URL", "https://dev.example.com") }
+    }
+}
+```
+
+Generated output (with `env=prod`):
+
+```kotlin
+public object BuildKonfig {
+    const val BUILD_TYPE: String = "release"
+    // ...
+
+    // dimension: env (flat), variant: prod
+    const val ENV_VARIANT: String = "prod"
+    const val BASE_URL: String = "https://prod.example.com"
+}
+```
+
+Root-level name collisions **fail the build** — a flat field may not shadow a
+built-in constant (`BUILD_TYPE`, `MODULE_NAME`, `IS_DEBUG`), a global field, or
+a field from another flat dimension.
+
 ---
 
 ## Variant selection
@@ -224,6 +266,30 @@ konfig.dimension.env=dev
 ```
 
 This file is tracked as a task input — changing it invalidates the build cache.
+
+### Task-name matching rules
+
+Variant detection respects **camelCase word boundaries** — a variant only
+matches a whole segment of the task name, never a plain substring:
+
+- `assemblePreprodRelease` matches variant `preprod`, **not** `prod`
+- `assembleProdRelease` matches variant `prod`, **not** `preprod`
+- `assembleDevelopRelease` does **not** match variant `dev`
+
+When several variants match and every match is a substring of the longest one
+(e.g. `prod` inside `preProd` for `assemblePreProdRelease`), the longest wins.
+Genuinely ambiguous matches are skipped with a warning.
+
+### Selection logging
+
+The resolved build type and every dimension decision are printed by the
+`konfigInfo` task on **every** build — including fully cached / UP-TO-DATE
+builds with the configuration cache enabled:
+
+```
+konfig [app]: BUILD_TYPE = release  (task-name detection matched release in [assembleProdRelease])
+konfig [app]: dim 'env' -> 'prod'  (task-name detection: 'prod' found in [assembleProdRelease])
+```
 
 ---
 
@@ -275,6 +341,34 @@ println(BuildKonfig.Env.VARIANT)   // "dev" or "prod"
 
 ---
 
+## Build-script queries (`konfig.isDebug`, `konfig.getCurrentDimension`)
+
+The same recognition logic that drives generation is queryable from build
+scripts — useful for wiring per-build-type dependencies in KMP projects:
+
+```kotlin
+konfig {
+    dimension("env", defaultTo = "prod") { /* ... */ }
+}
+
+dependencies {
+    if (konfig.isDebug) implementation(project(":debugImpl"))
+    else                implementation(project(":releaseImpl"))
+}
+
+val activeEnv: String? = konfig.getCurrentDimension("env")   // "prod", or null if skipped
+```
+
+| API                                  | Type                | Description                                    |
+|--------------------------------------|---------------------|------------------------------------------------|
+| `konfig.isDebug`                     | `Boolean`           | True when the resolved build type is debug     |
+| `konfig.isDebugProvider`             | `Provider<Boolean>` | Lazy variant for provider-based wiring         |
+| `konfig.currentBuildType`            | `Provider<String>`  | `"debug"` / `"release"`                        |
+| `konfig.getCurrentDimension(name)`   | `String?`           | Active variant, or `null` when skipped/unknown |
+| `konfig.currentDimension(name)`      | `Provider<String>`  | Lazy variant (absent when skipped/unknown)     |
+
+---
+
 ## Using Gradle providers as field values
 
 Lazy `Provider<T>` values are supported — useful for reading Gradle properties or environment variables:
@@ -297,7 +391,13 @@ The generated directory (`build/generated/konfig/`) is automatically added as a 
 - `org.jetbrains.kotlin.multiplatform` → `commonMain`
 - `org.jetbrains.kotlin.jvm` → `main`
 - `org.jetbrains.kotlin.android` → `main`
-- `com.android.application` / `com.android.library` → `main`
+- `com.android.application` / `com.android.library` → all variants via the
+  `androidComponents` Sources API (AGP 8.1+ required)
+
+The Android wiring uses the modern variant Sources API instead of the
+`AndroidSourceSet` DSL, so it keeps working on **AGP 9.2+** where
+`android.sourceset.disallowProvider` defaults to `true` (passing providers to
+the source-set DSL is rejected). No legacy flag needed.
 
 The `generateKonfig` task is automatically wired as a dependency of all `compileKotlin*` and `sourcesJar` tasks.
 
