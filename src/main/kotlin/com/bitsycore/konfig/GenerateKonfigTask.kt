@@ -8,6 +8,7 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.SetProperty
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.OutputDirectory
@@ -39,11 +40,10 @@ abstract class GenerateKonfigTask : DefaultTask() {
 	@get:Input abstract val objectName:       Property<String>
 	@get:Input abstract val objectVisibility: Property<Visibility>
 
-	/** Human-readable explanation of why the current build type was chosen. */
-	@get:Input abstract val buildTypeSource: Property<String>
-
 	/**
-	 * Resolution log for every declared dimension, keyed by dimension name.
+	 * Resolution log entries with the ERROR tag only (configuration errors), keyed by
+	 * dimension name. Full logs (with task-name-dependent reasons) live on [KonfigInfoTask]
+	 * so they don't bust this task's up-to-date check.
 	 * Each value is tab-separated: `"<TAG>\t<variant>\t<reason>"`.
 	 */
 	@get:Input abstract val dimensionResolutionLog: MapProperty<String, String>
@@ -61,6 +61,8 @@ abstract class GenerateKonfigTask : DefaultTask() {
 
 	/** Ordered list of active dimension names. */
 	@get:Input abstract val activeDimensionNames: ListProperty<String>
+	/** Names of dimensions declared with `flatDimension` (fields emitted at the root). */
+	@get:Input abstract val flatDimensionNames: SetProperty<String>
 	/** `dimName -> Kotlin object name`. */
 	@get:Input abstract val dimensionObjectNames: MapProperty<String, String>
 	/** `dimName -> selected variant`. */
@@ -86,7 +88,6 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		val isDebug   = btVal == BuildType.DEBUG
 
 		validate(mod, objName, pkg)
-		logResolution(mod, btVal, objName, pkg)
 
 		val outDir = outputDirectory.get().asFile
 		if (outDir.exists()) outDir.deleteRecursively()
@@ -98,6 +99,9 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		val dimNames  = activeDimensionNames.get()
 		val dimObjN   = dimensionObjectNames.get()
 		val dimVars   = dimensionActiveVariants.get()
+		val flatDims  = flatDimensionNames.get()
+
+		checkRootCollisions(mod, dimNames.filter { it in flatDims }, gFields, dFields, dimVars)
 
 		val content = buildString {
 			appendLine("""@file:Suppress("RedundantVisibilityModifier")""")
@@ -123,22 +127,32 @@ abstract class GenerateKonfigTask : DefaultTask() {
 			}
 
 			for (dimName in dimNames) {
-				val dimObjName    = dimObjN[dimName] ?: continue
 				val activeVariant = dimVars[dimName] ?: continue
 				val prefix        = "$dimName|"
 				val fields        = dFields
 					.filterKeys { it.startsWith(prefix) }
 					.mapKeys    { (k, _) -> k.removePrefix(prefix) }
 
-				appendLine()
-				appendLine("    ${visPrefix}object $dimObjName /*$dimName*/ {")
-				appendLine()
-				appendLine("        const val VARIANT: String = \"$activeVariant\"")
-				if (fields.isNotEmpty()) {
+				if (dimName in flatDims) {
+					// Flat dimension: fields live directly on the root object.
 					appendLine()
-					appendEncodedFields("        ", fields, btVal)
+					appendLine("    // dimension: $dimName (flat), variant: $activeVariant")
+					appendLine("    const val ${dimName.toVariantConstName()}: String = \"$activeVariant\"")
+					if (fields.isNotEmpty()) {
+						appendEncodedFields("    ", fields, btVal)
+					}
+				} else {
+					val dimObjName = dimObjN[dimName] ?: continue
+					appendLine()
+					appendLine("    ${visPrefix}object $dimObjName /*$dimName*/ {")
+					appendLine()
+					appendLine("        const val VARIANT: String = \"$activeVariant\"")
+					if (fields.isNotEmpty()) {
+						appendLine()
+						appendEncodedFields("        ", fields, btVal)
+					}
+					appendLine("    }")
 				}
-				appendLine("    }")
 
 				logger.info("konfig [$mod]: dim '$dimName' fields: ${fields.keys.sorted().joinToString()}")
 			}
@@ -198,36 +212,55 @@ abstract class GenerateKonfigTask : DefaultTask() {
 	}
 
 	// ==============================================================================
-	// MARK: Loggings
+	// MARK: Flat dimension collision detection
 	// ==============================================================================
 
-	private fun logResolution(mod: String, btVal: BuildType, objName: String, pkg: String) {
-		logger.lifecycle("konfig [$mod]: BUILD_TYPE = ${btVal.name.lowercase()}  (${buildTypeSource.get()})")
+	/**
+	 * Fails the build when a flat dimension would generate a root-level name that
+	 * already exists (base constants, global fields, or another flat dimension).
+	 */
+	private fun checkRootCollisions(
+		mod: String,
+		activeFlatDims: List<String>,
+		gFields: Map<String, String>,
+		dFields: Map<String, String>,
+		dimVars: Map<String, String>,
+	) {
+		if (activeFlatDims.isEmpty()) return
 
-		val resolutionLog = dimensionResolutionLog.get()
-		if (resolutionLog.isEmpty()) {
-			logger.info("konfig [$mod]: no dimensions declared")
-		} else {
-			val maxDimLen = resolutionLog.keys.maxOf { it.length }
-			resolutionLog.entries
-				.sortedBy { (n, enc) -> "${if (enc.startsWith("OK")) "0" else "1"}_$n" }
-				.forEach { (dimName, encoded) ->
-					val parts   = encoded.split("\t", limit = 3)
-					val tag     = parts[0]
-					val variant = parts.getOrElse(1) { "" }
-					val reason  = parts.getOrElse(2) { "" }
-					val padded  = dimName.padEnd(maxDimLen)
-					when (tag) {
-						"OK"   -> logger.lifecycle("konfig [$mod]: dim '$padded' -> '$variant'  ($reason)")
-						"SKIP" -> logger.lifecycle("konfig [$mod]: dim '$padded' -> skipped  ($reason)")
-						"WARN_UNKNOWN", "WARN_AMBIGUOUS" -> logger.warn("konfig [$mod]: dim '$dimName' -- $reason")
-						"ERROR" -> logger.error("konfig [$mod]: dim '$dimName' -- ERROR: $reason")
-					}
+		val owners = mutableMapOf<String, String>()
+		listOf("BUILD_TYPE", "MODULE_NAME", "IS_DEBUG").forEach { owners[it] = "built-in constant" }
+		gFields.keys.forEach { owners[it] = "global field" }
+
+		val errors = mutableListOf<String>()
+		for (dimName in activeFlatDims) {
+			if (dimVars[dimName] == null) continue
+			val prefix = "$dimName|"
+			val rootNames = buildList {
+				add(dimName.toVariantConstName())
+				addAll(dFields.keys.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) })
+			}
+			for (name in rootNames) {
+				val existing = owners[name]
+				if (existing != null) {
+					errors += "flat dimension '$dimName' generates '$name' which collides with $existing"
+				} else {
+					owners[name] = "flat dimension '$dimName'"
 				}
+			}
 		}
 
-		logger.info("konfig [$mod]: object = $pkg.$objName")
+		if (errors.isNotEmpty()) {
+			throw GradleException(buildString {
+				appendLine("konfig [$mod]: flat dimension name collisions:")
+				errors.forEach { appendLine("  - $it") }
+			}.trimEnd())
+		}
 	}
+
+	/** `"my-env"` → `"MY_ENV_VARIANT"` — root constant holding the active variant of a flat dimension. */
+	private fun String.toVariantConstName(): String =
+		uppercase().replace(Regex("[^A-Z0-9]"), "_") + "_VARIANT"
 
 	// ==============================================================================
 	// MARK: Helpers

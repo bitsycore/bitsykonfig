@@ -2,11 +2,12 @@
 
 package com.bitsycore.konfig
 
-import com.android.build.api.dsl.CommonExtension
+import com.android.build.api.variant.AndroidComponentsExtension
 import com.bitsycore.konfig.configs.DimensionConfig
 import com.bitsycore.konfig.configs.FieldConfig
 import com.bitsycore.konfig.types.BuildType
 import com.bitsycore.konfig.types.Visibility
+import com.bitsycore.konfig.types.containsWordCamelCase
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.provider.Provider
@@ -133,19 +134,54 @@ class KonfigPlugin : Plugin<Project> {
 			}
 
 		// =========================================================================
+		// MARK: Build-script query wiring (konfig.isDebug / konfig.getCurrentDimension)
+		// =========================================================================
+
+		extension.buildTypeProviderInternal = buildTypeProvider
+		extension.dimensionResolverInternal = { dimName ->
+			combinedProps.map { ctx ->
+				extension.dimensions.firstOrNull { it.dimensionName == dimName }?.let { dim ->
+					resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames)
+				}
+			}
+		}
+
+		// =========================================================================
 		// MARK: Task Registration
 		// =========================================================================
 
 		val forceRegen = project.providers.gradleProperty("konfig.force").isPresent
 
+		// Untracked logging task: runs on EVERY build (even fully cached ones) so the
+		// selected build type / dimension variants always appear in the logs.
+		val infoTask = project.tasks.register("konfigInfo", KonfigInfoTask::class.java) {
+			description = "Prints the resolved konfig build type and dimension variants."
+			group = "konfig"
+			moduleName.set(project.name)
+			buildType.set(buildTypeProvider)
+			buildTypeSource.set(buildTypeSourceProvider)
+			dimensionResolutionLog.set(dimensionResolutionLogProvider)
+		}
+
 		val generateTask = project.tasks.register("generateKonfig", GenerateKonfigTask::class.java).apply {
 			configure {
 				if (forceRegen) outputs.upToDateWhen { false }
+				dependsOn(infoTask)
 
 				moduleName.set(project.name)
 				buildType.set(buildTypeProvider)
-				buildTypeSource.set(buildTypeSourceProvider)
-				dimensionResolutionLog.set(dimensionResolutionLogProvider)
+				// Only ERROR entries: full logs (task-name dependent) are on konfigInfo,
+				// keeping this task's inputs stable across invocations.
+				dimensionResolutionLog.set(
+					dimensionResolutionLogProvider.map { log ->
+						log.filterValues { it.startsWith("ERROR") }
+					}
+				)
+				flatDimensionNames.set(
+					project.providers.provider {
+						extension.dimensions.filter { it.flat }.map { it.dimensionName }.toSet()
+					}
+				)
 				outputDirectory.set(extension.outputDir)
 				objectPackage.set(extension.objectPackageProp)
 				objectName.set(extension.objectNameProp)
@@ -202,9 +238,15 @@ class KonfigPlugin : Plugin<Project> {
 		}
 		listOf("com.android.application", "com.android.library").forEach { androidPluginId ->
 			project.plugins.withId(androidPluginId) {
-				@Suppress("UnstableApiUsage")
-				(project.extensions.findByName("android") as? CommonExtension<*, *, *, *>)
-					?.sourceSets?.findByName("main")?.kotlin?.srcDir(extension.outputDir)
+				// AGP 9.2 flips android.sourceset.disallowProvider to true: passing a
+				// provider (like a DirectoryProperty) to the AndroidSourceSet DSL fails.
+				// Register the generated directory through the variant Sources API instead.
+				project.extensions.findByType(AndroidComponentsExtension::class.java)
+					?.onVariants { variant ->
+						val vOutDir = extension.outputDir.get().asFile
+						vOutDir.mkdirs()
+						variant.sources.kotlin?.addStaticSourceDirectory(vOutDir.absolutePath)
+					}
 			}
 		}
 
@@ -296,9 +338,16 @@ class KonfigPlugin : Plugin<Project> {
 
 		// Priority 3: task-name detection
 		if (flavorDetect && taskNames.isNotEmpty()) {
-			val matches = dim.variants.keys.filter { variant ->
-				taskNames.any { task -> task.contains(variant, ignoreCase = true) }
+			val rawMatches = dim.variants.keys.filter { variant ->
+				taskNames.any { task -> task.containsWordCamelCase(variant) }
 			}
+			// When every match is a substring of the longest one (e.g. 'prod' inside
+			// 'preProd' for task assemblePreProdRelease), the longest is the real one.
+			val matches = if (rawMatches.size > 1) {
+				val longest = rawMatches.maxBy { it.length }
+				if (rawMatches.all { it == longest || longest.contains(it, ignoreCase = true) }) listOf(longest)
+				else rawMatches
+			} else rawMatches
 			when (matches.size) {
 				1 -> return "OK\t${matches.first()}\ttask-name detection: '${matches.first()}' " +
 					"found in [${taskNames.joinToString()}]"

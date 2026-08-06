@@ -28,6 +28,8 @@ class DimensionConfig @PublishedApi internal constructor(
     val dimensionName: String,
     val objectNameOverride: String?,
     val defaultVariant: String?,
+    /** When true, fields are generated at the root of the konfig object instead of a nested object. */
+    val flat: Boolean = false,
 ) {
     /** All named variants. */
     @PublishedApi

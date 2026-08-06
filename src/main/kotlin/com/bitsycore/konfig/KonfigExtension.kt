@@ -4,6 +4,7 @@ import com.bitsycore.konfig.configs.BuildTypedFieldDeclScope
 import com.bitsycore.konfig.configs.DimensionConfig
 import com.bitsycore.konfig.configs.FieldConfig
 import com.bitsycore.konfig.configs.VariantConfig
+import com.bitsycore.konfig.types.BuildType
 import com.bitsycore.konfig.types.KonfigDsl
 import com.bitsycore.konfig.types.Visibility
 import org.gradle.api.file.DirectoryProperty
@@ -78,6 +79,27 @@ abstract class KonfigExtension @Inject constructor(
         dimensions.add(d)
     }
 
+    /**
+     * Declares a dimension whose fields are generated directly at the root of the
+     * konfig object instead of inside a nested `object`.
+     *
+     * The selected variant is exposed as `<NAME>_VARIANT` (dimension name uppercased).
+     * Name collisions with global fields, base constants or other flat dimensions
+     * fail the build.
+     */
+    fun flatDimension(
+        name: String,
+        defaultTo: String? = null,
+        config: DimensionConfig.() -> Unit
+    ) {
+        require(dimensions.none { it.dimensionName == name }) {
+            "konfig: dimension '$name' is already declared"
+        }
+        val d = DimensionConfig(name, objectNameOverride = null, defaultVariant = defaultTo, flat = true)
+        config(d)
+        dimensions.add(d)
+    }
+
     inline fun <reified T : Any> field(
         name: String,
         default: T,
@@ -90,4 +112,46 @@ abstract class KonfigExtension @Inject constructor(
 
     fun debug(block: BuildTypedFieldDeclScope.() -> Unit)   = globalScope.debug(block)
     fun release(block: BuildTypedFieldDeclScope.() -> Unit) = globalScope.release(block)
+
+    // ==============================================================================
+    // MARK: Build-script queries
+    // ==============================================================================
+
+    /** Wired by the plugin at apply time — same resolution chain as the generated object. */
+    internal lateinit var buildTypeProviderInternal: Provider<BuildType>
+
+    /** Wired by the plugin at apply time — resolves a dimension with the same recognition logic. */
+    internal lateinit var dimensionResolverInternal: (String) -> Provider<String>
+
+    /** Resolved build type as a lazy provider (`"debug"` / `"release"`). */
+    val currentBuildType: Provider<String>
+        get() = buildTypeProviderInternal.map { it.value }
+
+    /** Lazy provider variant of [isDebug], for provider-based wiring. */
+    val isDebugProvider: Provider<Boolean>
+        get() = buildTypeProviderInternal.map { it == BuildType.DEBUG }
+
+    /**
+     * True when the resolved build type is debug — uses the exact same recognition
+     * as the generated object, so it can drive build-script decisions such as
+     * KMP `debugImplementation`-style wiring:
+     *
+     * ```kotlin
+     * dependencies {
+     *     if (konfig.isDebug) implementation(project(":debugImpl"))
+     *     else                implementation(project(":releaseImpl"))
+     * }
+     * ```
+     */
+    val isDebug: Boolean
+        get() = isDebugProvider.get()
+
+    /**
+     * Lazy provider for the active variant of dimension [name].
+     * The provider has no value when the dimension is skipped or unknown.
+     */
+    fun currentDimension(name: String): Provider<String> = dimensionResolverInternal(name)
+
+    /** Active variant of dimension [name], or `null` when skipped/unknown. */
+    fun getCurrentDimension(name: String): String? = currentDimension(name).orNull
 }
