@@ -5,7 +5,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Functional tests for `flatDimension` — fields generated at the root of the
+ * Functional tests for `flatDimension` - fields generated at the root of the
  * konfig object, with hard failure on root-level name collisions.
  */
 class FlatDimensionFunctionalTest : FunctionalTestBase() {

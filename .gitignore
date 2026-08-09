@@ -5,6 +5,6 @@
 local.properties
 .DS_Store
 
-# Local credential overrides — never commit tokens
+# Local credential overrides - never commit tokens
 gradle.properties.local
 secrets.properties

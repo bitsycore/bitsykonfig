@@ -6,7 +6,7 @@ import kotlin.test.assertTrue
 
 /**
  * Functional tests for every supported field type emitted by the plugin:
- * String, Boolean, Int, Long, Float, Double — including correct Kotlin
+ * String, Boolean, Int, Long, Float, Double - including correct Kotlin
  * literal syntax (suffixes, special Float/Double values, escaping).
  */
 class FieldTypesFunctionalTest : FunctionalTestBase() {

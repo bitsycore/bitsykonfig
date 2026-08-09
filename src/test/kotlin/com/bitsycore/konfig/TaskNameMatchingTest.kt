@@ -33,7 +33,7 @@ class TaskNameMatchingTest {
 
 	@Test fun `camelCase variant matches its camelCase segment`() {
 		assertTrue("assemblePreProdRelease".containsWordCamelCase("preProd"))
-		// "Prod" is a legitimate camelCase segment inside PreProd — the resolver's
+		// "Prod" is a legitimate camelCase segment inside PreProd - the resolver's
 		// longest-match rule (tested functionally) disambiguates this case.
 		assertTrue("assemblePreProdRelease".containsWordCamelCase("prod"))
 	}

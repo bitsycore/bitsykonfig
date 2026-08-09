@@ -1,6 +1,6 @@
 # buildkonfig-gradle-plugin
 
-A Gradle plugin that generates a `BuildKonfig` Kotlin object at build time — like Android's `BuildConfig`, but for any Kotlin project (JVM, Multiplatform, Android).
+A Gradle plugin that generates a `BuildKonfig` Kotlin object at build time - like Android's `BuildConfig`, but for any Kotlin project (JVM, Multiplatform, Android).
 
 Fields can be constant, overridden per build type (debug/release), or scoped to named **dimensions** (e.g. environment, region) with their own variants.
 
@@ -33,7 +33,7 @@ pluginManagement {
 <details>
 <summary>GitHub Packages fallback (authenticated)</summary>
 
-Store credentials in `~/.gradle/gradle.properties` — never commit them:
+Store credentials in `~/.gradle/gradle.properties` - never commit them:
 
 ```properties
 gpr.user=YOUR_GITHUB_USERNAME
@@ -146,16 +146,16 @@ Three equivalent forms:
 
 ```kotlin
 konfig {
-    // Fluent handle — default + one or both overrides
+    // Fluent handle - default + one or both overrides
     field("BASE_URL", "https://prod.example.com").debug("https://dev.example.com")
 
-    // Scope blocks — build type is fixed, field() returns Unit, no chaining
+    // Scope blocks - build type is fixed, field() returns Unit, no chaining
     debug   { field("MOCK_API", true) }
     release { field("MOCK_API", false) }
 }
 ```
 
-> `field()` inside `debug {}` / `release {}` blocks intentionally returns `Unit` — the build type is already fixed by the enclosing scope, so `.debug()` / `.release()` chaining is impossible by design.
+> `field()` inside `debug {}` / `release {}` blocks intentionally returns `Unit` - the build type is already fixed by the enclosing scope, so `.debug()` / `.release()` chaining is impossible by design.
 
 ---
 
@@ -239,7 +239,7 @@ public object BuildKonfig {
 }
 ```
 
-Root-level name collisions **fail the build** — a flat field may not shadow a
+Root-level name collisions **fail the build** - a flat field may not shadow a
 built-in constant (`BUILD_TYPE`, `MODULE_NAME`, `IS_DEBUG`), a global field, or
 a field from another flat dimension.
 
@@ -255,7 +255,7 @@ Variants are resolved in priority order:
 | 2        | `konfig.properties` file | `konfig.dimension.env=dev`               |
 | 3        | Task-name detection      | Running `assembleDevDebug` matches `dev` |
 | 4        | `defaultTo` in DSL       | `dimension("env", defaultTo = "prod")`   |
-| —        | Omitted silently         | No variant → no nested object generated  |
+| -        | Omitted silently         | No variant → no nested object generated  |
 
 ### `konfig.properties` file
 
@@ -265,11 +265,11 @@ Place a `konfig.properties` file in your project directory:
 konfig.dimension.env=dev
 ```
 
-This file is tracked as a task input — changing it invalidates the build cache.
+This file is tracked as a task input - changing it invalidates the build cache.
 
 ### Task-name matching rules
 
-Variant detection respects **camelCase word boundaries** — a variant only
+Variant detection respects **camelCase word boundaries** - a variant only
 matches a whole segment of the task name, never a plain substring:
 
 - `assemblePreprodRelease` matches variant `preprod`, **not** `prod`
@@ -283,7 +283,7 @@ Genuinely ambiguous matches are skipped with a warning.
 ### Selection logging
 
 The resolved build type and every dimension decision are printed by the
-`konfigInfo` task on **every** build — including fully cached / UP-TO-DATE
+`konfigInfo` task on **every** build - including fully cached / UP-TO-DATE
 builds with the configuration cache enabled:
 
 ```
@@ -301,7 +301,7 @@ Build type is resolved in priority order:
 |----------|---------------------|-----------------------------------|
 | 1        | Explicit property   | `-Pkonfig.buildtype=DEBUG`        |
 | 2        | Task-name detection | Running `assembleDebug` → `DEBUG` |
-| —        | Default             | `RELEASE`                         |
+| -        | Default             | `RELEASE`                         |
 
 ---
 
@@ -311,7 +311,7 @@ Build type is resolved in priority order:
 |---------------------------------------------|--------------------------------------------------|
 | `-Pkonfig.buildtype=DEBUG\|RELEASE`         | Forces build type                                |
 | `-Pkonfig.dimension.<name>=<variant>`       | Selects a dimension variant                      |
-| `-Pkonfig.force`                            | Disables UP-TO-DATE checks — task always re-runs |
+| `-Pkonfig.force`                            | Disables UP-TO-DATE checks - task always re-runs |
 | `-Pkonfig.android.buildtypedetection=false` | Disables task-name build-type detection          |
 | `-Pkonfig.android.flavordetection=false`    | Disables task-name dimension-variant detection   |
 
@@ -324,7 +324,7 @@ Forces `generateKonfig` to re-run on every build, bypassing Gradle's UP-TO-DATE 
 ./gradlew assembleRelease -Pkonfig.force
 ```
 
-The flag is presence-based — any value (or no value) enables it.
+The flag is presence-based - any value (or no value) enables it.
 
 ---
 
@@ -344,7 +344,7 @@ println(BuildKonfig.Env.VARIANT)   // "dev" or "prod"
 ## Build-script queries (`konfig.isDebug`, `konfig.getCurrentDimension`)
 
 The same recognition logic that drives generation is queryable from build
-scripts — useful for wiring per-build-type dependencies in KMP projects:
+scripts - useful for wiring per-build-type dependencies in KMP projects:
 
 ```kotlin
 konfig {
@@ -371,7 +371,7 @@ val activeEnv: String? = konfig.getCurrentDimension("env")   // "prod", or null 
 
 ## Using Gradle providers as field values
 
-Lazy `Provider<T>` values are supported — useful for reading Gradle properties or environment variables:
+Lazy `Provider<T>` values are supported - useful for reading Gradle properties or environment variables:
 
 ```kotlin
 konfig {
@@ -380,7 +380,7 @@ konfig {
 }
 ```
 
-> Do not call `System.getenv()` or `project.findProperty()` directly inside `field()` — these bypass the Provider API and break configuration cache.
+> Do not call `System.getenv()` or `project.findProperty()` directly inside `field()` - these bypass the Provider API and break configuration cache.
 
 ---
 
@@ -427,7 +427,7 @@ The `generateKonfig` task is automatically wired as a dependency of all `compile
 # Run unit tests only
 ./gradlew test
 
-# Run functional tests (Gradle TestKit — starts real Gradle builds)
+# Run functional tests (Gradle TestKit - starts real Gradle builds)
 ./gradlew functionalTest
 
 # Run a specific functional test

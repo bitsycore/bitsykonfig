@@ -6,7 +6,7 @@ import kotlin.test.assertTrue
 
 /**
  * Functional tests for top-level (global) field declarations:
- * String, Boolean, Int — defaults, debug overrides, release overrides,
+ * String, Boolean, Int - defaults, debug overrides, release overrides,
  * and the debug/release scope block syntax.
  */
 class GlobalFieldsFunctionalTest : FunctionalTestBase() {

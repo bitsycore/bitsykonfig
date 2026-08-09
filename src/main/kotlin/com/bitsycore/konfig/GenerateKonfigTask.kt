@@ -258,7 +258,7 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		}
 	}
 
-	/** `"my-env"` → `"MY_ENV_VARIANT"` — root constant holding the active variant of a flat dimension. */
+	/** `"my-env"` → `"MY_ENV_VARIANT"` - root constant holding the active variant of a flat dimension. */
 	private fun String.toVariantConstName(): String =
 		uppercase().replace(Regex("[^A-Z0-9]"), "_") + "_VARIANT"
 
@@ -285,7 +285,7 @@ abstract class GenerateKonfigTask : DefaultTask() {
 				"Long"    -> """${indent}const val $name: Long = ${raw}L"""
 				"Float"   -> """${indent}const val $name: Float = ${raw.toFloat().toKotlinFloat()}"""
 				"Double"  -> """${indent}const val $name: Double = ${raw.toDouble().toKotlinDouble()}"""
-				else      -> return@forEach // unknown type — skip
+				else      -> return@forEach // unknown type - skip
 			}
 			appendLine(line)
 		}

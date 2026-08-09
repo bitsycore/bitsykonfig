@@ -16,7 +16,7 @@ import org.gradle.api.provider.Provider
  * field("TIMEOUT", 30).debug(5)
  * field("URL", "https://prod.example.com").debug("https://dev.example.com").release("https://prod.example.com")
  * ```
- * Not available inside `debug {}` / `release {}` blocks — those return [Unit].
+ * Not available inside `debug {}` / `release {}` blocks - those return [Unit].
  */
 class FieldHandle<T : Any> @PublishedApi internal constructor(
     @PublishedApi internal val field: FieldConfig<T>
@@ -34,7 +34,7 @@ class FieldHandle<T : Any> @PublishedApi internal constructor(
 /**
  * Receiver of `debug { ... }` and `release { ... }` blocks inside [VariantConfig].
  *
- * `field()` here returns [Unit] — no `.debug()`/`.release()` chaining is possible
+ * `field()` here returns [Unit] - no `.debug()`/`.release()` chaining is possible
  * because the build type is already fixed by the enclosing scope.
  */
 @KonfigDsl
