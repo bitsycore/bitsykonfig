@@ -2,17 +2,24 @@ package com.bitsycore.konfig
 
 import com.bitsycore.konfig.types.BuildType
 import com.bitsycore.konfig.types.Visibility
+import com.bitsycore.konfig.types.isValidKotlinIdentifier
+import com.bitsycore.konfig.types.toVariantConstName
+import com.bitsycore.konfig.types.toKotlinStringLiteral
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.SetProperty
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * Generates the `BuildKonfig` (or custom named) Kotlin object.
@@ -73,7 +80,25 @@ abstract class GenerateKonfigTask : DefaultTask() {
 	/** Dimension fields: `"<dimName>|<fieldName>" -> "TYPE:value"`. */
 	@get:Input abstract val dimensionFields: MapProperty<String, String>
 
-	@get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+	// Register only the generated file as output: Gradle must never own neighboring files.
+	@get:Internal abstract val outputDirectory: DirectoryProperty
+	/** A directory view that carries generatedFile's producer without owning the directory. */
+	@get:Internal abstract val sourceDirectory: DirectoryProperty
+	@get:OutputFile abstract val ownershipFile: RegularFileProperty
+	@get:OutputFile abstract val generatedFile: RegularFileProperty
+
+	init {
+		generatedFile.convention(outputDirectory.zip(objectPackage) { dir, pkg -> dir.dir(pkg.replace('.', '/')) }
+			.zip(objectName) { dir, name -> dir.file("$name.kt") })
+		sourceDirectory.convention(generatedFile.zip(outputDirectory) { _, directory -> directory })
+		outputs.doNotCacheIf("Output ownership must be checked or a renamed output cleaned up") {
+			val record = ownershipFile.get().asFile
+			val target = generatedFile.get().asFile
+			!target.canonicalFile.toPath().startsWith(outputDirectory.get().asFile.canonicalFile.toPath()) ||
+				(target.exists() && !target.readText().contains(GENERATED_MARKER)) ||
+				(record.exists() && record.readText() != "${objectPackage.get().replace('.', '/')}/${objectName.get()}.kt")
+		}
+	}
 
 	@TaskAction
 	fun generate() {
@@ -92,9 +117,7 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		validate(mod, objName, pkg)
 
 		val outDir = outputDirectory.get().asFile
-		if (outDir.exists()) outDir.deleteRecursively()
 		val pkgDir = outDir.resolve(pkg.replace('.', '/'))
-		pkgDir.mkdirs()
 
 		val gFields   = globalFields.get()
 		val dFields   = dimensionFields.get()
@@ -103,7 +126,7 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		val dimVars   = dimensionActiveVariants.get()
 		val flatDims  = flatDimensionNames.get()
 
-		checkRootCollisions(mod, dimNames.filter { it in flatDims }, gFields, dFields, dimVars)
+		checkRootCollisions(mod, dimNames, gFields, dFields, dimVars)
 
 		val content = buildString {
 			appendLine("""@file:Suppress("RedundantVisibilityModifier")""")
@@ -117,7 +140,7 @@ abstract class GenerateKonfigTask : DefaultTask() {
 			appendLine("${visPrefix}object $objName {")
 			appendLine()
 			appendLine("""    const val BUILD_TYPE: String = "${btVal.name.lowercase()}"""")
-			appendLine("""    const val MODULE_NAME: String = "$mod"""")
+			appendLine("    const val MODULE_NAME: String = ${mod.toKotlinStringLiteral()}")
 			if (isDebug)
 				appendLine("    inline val IS_DEBUG: Boolean get() = true")
 			else
@@ -138,17 +161,17 @@ abstract class GenerateKonfigTask : DefaultTask() {
 				if (dimName in flatDims) {
 					// Flat dimension: fields live directly on the root object.
 					appendLine()
-					appendLine("    // dimension: $dimName (flat), variant: $activeVariant")
-					appendLine("    const val ${dimName.toVariantConstName()}: String = \"$activeVariant\"")
+					appendLine("    // dimension: ${dimName.safeComment()} (flat), variant: ${activeVariant.safeComment()}")
+					appendLine("    const val ${dimName.toVariantConstName()}: String = ${activeVariant.toKotlinStringLiteral()}")
 					if (fields.isNotEmpty()) {
 						appendEncodedFields("    ", fields, btVal)
 					}
 				} else {
 					val dimObjName = dimObjN[dimName] ?: continue
 					appendLine()
-					appendLine("    ${visPrefix}object $dimObjName /*$dimName*/ {")
+					appendLine("    ${visPrefix}object $dimObjName /*${dimName.safeComment()}*/ {")
 					appendLine()
-					appendLine("        const val VARIANT: String = \"$activeVariant\"")
+					appendLine("        const val VARIANT: String = ${activeVariant.toKotlinStringLiteral()}")
 					if (fields.isNotEmpty()) {
 						appendLine()
 						appendEncodedFields("        ", fields, btVal)
@@ -163,8 +186,30 @@ abstract class GenerateKonfigTask : DefaultTask() {
 			appendLine("}")
 		}
 
-		val outFile = pkgDir.resolve("$objName.kt")
-		outFile.writeText(content)
+		val outFile = generatedFile.get().asFile
+		val rootPath = outDir.canonicalFile.toPath()
+		if (!outFile.canonicalFile.toPath().startsWith(rootPath))
+			throw GradleException("konfig: generated file escapes outputDirectory through a symbolic link")
+		if (outFile.exists() && !outFile.readText().contains(GENERATED_MARKER))
+			throw GradleException("konfig: refusing to overwrite non-generated file '$outFile'")
+		pkgDir.mkdirs()
+		val temporary = Files.createTempFile(pkgDir.toPath(), ".konfig-", ".tmp")
+		try {
+			Files.writeString(temporary, content)
+			Files.move(temporary, outFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+		} finally {
+			Files.deleteIfExists(temporary)
+		}
+		val record = ownershipFile.get().asFile
+		if (record.exists()) {
+			val previous = outDir.resolve(record.readText())
+			if (previous.canonicalFile != outFile.canonicalFile && previous.isFile &&
+				previous.canonicalFile.toPath().startsWith(rootPath) && previous.readText().contains(GENERATED_MARKER)) {
+				Files.delete(previous.toPath())
+			}
+		}
+		record.parentFile.mkdirs()
+		record.writeText("${pkg.replace('.', '/')}/$objName.kt")
 
 		val dimSummary   = if (dimNames.isEmpty()) "no dimensions"
 			else "${dimNames.size} dimension(s): ${dimNames.joinToString { "'$it'" }}"
@@ -201,8 +246,13 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		}
 
 		pkg.split(".").forEach { segment ->
-			if (segment.isEmpty() || !segment.all { it.isLetterOrDigit() || it == '_' })
+			if (!segment.isValidKotlinIdentifier())
 				errors += "package segment '$segment' in '$pkg' is not valid"
+		}
+		val flat = flatDimensionNames.get()
+		activeDimensionNames.get().forEach { dimension ->
+			val name = if (dimension in flat) dimension.toVariantConstName() else dimensionObjectNames.get()[dimension].orEmpty()
+			if (!name.isValidKotlinIdentifier()) errors += "dimension '$dimension' generates invalid Kotlin identifier '$name'"
 		}
 
 		if (errors.isNotEmpty()) {
@@ -214,55 +264,61 @@ abstract class GenerateKonfigTask : DefaultTask() {
 	}
 
 	// ==============================================================================
-	// MARK: Flat dimension collision detection
+	// MARK: Generated scope collision detection
 	// ==============================================================================
 
 	/**
-	 * Fails the build when a flat dimension would generate a root-level name that
-	 * already exists (base constants, global fields, or another flat dimension).
+	 * Checks built-in constants, global/flat fields, nested object names and VARIANT.
 	 */
 	private fun checkRootCollisions(
 		mod: String,
-		activeFlatDims: List<String>,
+		activeDims: List<String>,
 		gFields: Map<String, String>,
 		dFields: Map<String, String>,
 		dimVars: Map<String, String>,
 	) {
-		if (activeFlatDims.isEmpty()) return
-
 		val owners = mutableMapOf<String, String>()
 		listOf("BUILD_TYPE", "MODULE_NAME", "IS_DEBUG").forEach { owners[it] = "built-in constant" }
-		gFields.keys.forEach { owners[it] = "global field" }
-
 		val errors = mutableListOf<String>()
-		for (dimName in activeFlatDims) {
+		fun claim(name: String, owner: String) {
+			val existing = owners.putIfAbsent(name, owner)
+			if (existing != null) errors += "$owner generates '$name' which collides with $existing"
+		}
+		gFields.keys.forEach { claim(it, "global field") }
+		val flatDims = flatDimensionNames.get()
+		for (dimName in activeDims) {
 			if (dimVars[dimName] == null) continue
 			val prefix = "$dimName|"
+			if (dimName !in flatDims) {
+				val dimObject = dimensionObjectNames.get().getValue(dimName)
+				claim(dimObject, "dimension '$dimName'")
+				if (dimObject == objectName.get()) errors += "dimension '$dimName' reuses enclosing object name '$dimObject'"
+				if (dFields.containsKey("${prefix}VARIANT")) errors += "dimension '$dimName' field 'VARIANT' collides with built-in constant"
+				continue
+			}
 			val rootNames = buildList {
 				add(dimName.toVariantConstName())
 				addAll(dFields.keys.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) })
 			}
 			for (name in rootNames) {
-				val existing = owners[name]
-				if (existing != null) {
-					errors += "flat dimension '$dimName' generates '$name' which collides with $existing"
-				} else {
-					owners[name] = "flat dimension '$dimName'"
-				}
+				claim(name, "flat dimension '$dimName'")
 			}
 		}
 
 		if (errors.isNotEmpty()) {
 			throw GradleException(buildString {
-				appendLine("konfig [$mod]: flat dimension name collisions:")
+				appendLine("konfig [$mod]: name collisions:")
 				errors.forEach { appendLine("  - $it") }
 			}.trimEnd())
 		}
 	}
 
-	/** `"my-env"` → `"MY_ENV_VARIANT"` — root constant holding the active variant of a flat dimension. */
-	private fun String.toVariantConstName(): String =
-		uppercase().replace(Regex("[^A-Z0-9]"), "_") + "_VARIANT"
+	private fun String.safeComment(): String = toKotlinStringLiteral().removeSurrounding("\"")
+		.replace("/*", "/ *").replace("*/", "* /")
+
+	private companion object {
+		const val GENERATED_MARKER = "// Generated by buildkonfig-gradle-plugin"
+	}
 
 	// ==============================================================================
 	// MARK: Helpers
@@ -294,23 +350,6 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		}
 	}
 
-	private fun String.toKotlinStringLiteral(): String {
-		val escaped = buildString {
-			this@toKotlinStringLiteral.forEach { c ->
-				when (c) {
-					'\\'  -> append("\\\\")
-					'"'   -> append("\\\"")
-					'\n'  -> append("\\n")
-					'\r'  -> append("\\r")
-					'\t'  -> append("\\t")
-					'$'   -> append("\\\$")
-					else  -> append(c)
-				}
-			}
-		}
-		return "\"$escaped\""
-	}
-
 	private fun Float.toKotlinFloat(): String = when {
 		isNaN()                         -> "Float.NaN"
 		this == Float.POSITIVE_INFINITY -> "Float.POSITIVE_INFINITY"
@@ -329,8 +368,4 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		}
 	}
 
-	private fun String.isValidKotlinIdentifier(): Boolean =
-		isNotEmpty()
-		&& first().let { it.isLetter() || it == '_' }
-		&& all { it.isLetterOrDigit() || it == '_' }
 }

@@ -1,6 +1,5 @@
 package com.bitsycore.konfig
 
-import java.io.File
 import org.gradle.testkit.runner.TaskOutcome
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -158,30 +157,4 @@ class CollectionsFunctionalTest : FunctionalTestBase() {
         assertTrue(run(listOf("generateKonfig")).output.contains("must use the same type"))
     }
 
-    /** Compile and execute the generated code using the compiler bundled with TestKit's Gradle. */
-    private fun File.writeCompilingProject(dsl: String, assertions: String) {
-        resolve("Check.kt").writeText(assertions.trimIndent())
-        writeBuildGradle("""
-            plugins { id("com.bitsycore.konfig") }
-            konfig { objectPackage = "com.example" }
-            ${dsl.trimIndent()}
-            val compilerLib = gradle.gradleHomeDir!!.resolve("lib")
-            val stdlib = compilerLib.listFiles()!!.first { it.name.startsWith("kotlin-stdlib-") }
-            val generated = layout.buildDirectory.dir("generated/konfig")
-            val classes = layout.buildDirectory.dir("verified-classes")
-            val compileGenerated = tasks.register<JavaExec>("compileGenerated") {
-                dependsOn("generateKonfig")
-                classpath = files(fileTree(compilerLib) { include("*.jar") })
-                mainClass.set("org.jetbrains.kotlin.cli.jvm.K2JVMCompiler")
-                args("-no-stdlib", "-no-reflect", "-classpath", stdlib.absolutePath,
-                    "-d", classes.get().asFile.absolutePath,
-                    generated.get().asFile.absolutePath, file("Check.kt").absolutePath)
-            }
-            tasks.register<JavaExec>("verifyGenerated") {
-                dependsOn(compileGenerated)
-                classpath = files(classes, stdlib)
-                mainClass.set("CheckKt")
-            }
-        """)
-    }
 }

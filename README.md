@@ -235,9 +235,9 @@ public object BuildKonfig {
 
     public object Env /*env*/ {
         const val VARIANT: String = "dev"
-        inline val TIMEOUT: Int get() = 5     // common {}, debug override
+        const val TIMEOUT: Int = 5     // common {}, debug override
         const val BASE_URL: String = "https://dev.example.com"
-        const val ANALYTICS: Boolean = false
+        inline val ANALYTICS: Boolean get() = false
     }
 }
 ```
@@ -287,6 +287,11 @@ Root-level name collisions **fail the build** — a flat field may not shadow a
 built-in constant (`BUILD_TYPE`, `MODULE_NAME`, `IS_DEBUG`), a global field, or
 a field from another flat dimension.
 
+Global fields also cannot reuse built-in names. Nested dimensions reserve
+`VARIANT`, and their object names must be unique within the root object.
+Object names, field names, and package segments must be valid Kotlin identifiers;
+keywords and underscore-only names are rejected before generation.
+
 ---
 
 ## Variant selection
@@ -297,7 +302,7 @@ Variants are resolved in priority order:
 |----------|--------------------------|------------------------------------------|
 | 1        | Gradle property          | `-Pkonfig.dimension.env=dev`             |
 | 2        | `konfig.properties` file | `konfig.dimension.env=dev`               |
-| 3        | Task-name detection      | Running `assembleDevDebug` matches `dev` |
+| 3        | Android flavor metadata, or task names for JVM/KMP | Android flavor dimension `env=dev`, or `assembleDevDebug` |
 | 4        | `defaultTo` in DSL       | `dimension("env", defaultTo = "prod")`   |
 | —        | Omitted silently         | No variant → no nested object generated  |
 
@@ -320,9 +325,15 @@ matches a whole segment of the task name, never a plain substring:
 - `assembleProdRelease` matches variant `prod`, **not** `preprod`
 - `assembleDevelopRelease` does **not** match variant `dev`
 
-When several variants match and every match is a substring of the longest one
-(e.g. `prod` inside `preProd` for `assemblePreProdRelease`), the longest wins.
-Genuinely ambiguous matches are skipped with a warning.
+When several variants match within a single task and every match is a substring
+of the longest one (e.g. `prod` inside `preProd` for `assemblePreProdRelease`),
+the longest wins. Conflicting selections across tasks fail with a clear error;
+`assembleProdRelease assemblePreProdRelease` never silently selects preProd.
+Project-path segments such as `:prod:` are excluded from task-name detection.
+
+Android application/library projects select flavors by the exact Android
+dimension name, so `dimension("env")` maps to the Android `env` flavor dimension.
+Explicit Gradle properties and `konfig.properties` still take precedence.
 
 ### Selection logging
 
@@ -344,8 +355,18 @@ Build type is resolved in priority order:
 | Priority | Source              | Example                           |
 |----------|---------------------|-----------------------------------|
 | 1        | Explicit property   | `-Pkonfig.buildtype=DEBUG`        |
-| 2        | Task-name detection | Running `assembleDebug` → `DEBUG` |
+| 2        | Android variant metadata, or task names for JVM/KMP | A debuggable Android variant → `DEBUG` |
 | —        | Default             | `RELEASE`                         |
+
+Android application/library variants generate separate objects, so aggregate
+tasks and simultaneous debug/release builds are supported. Custom Android build
+types use their `debuggable` setting.
+
+JVM/KMP projects share one object. Conflicting debug/release task requests fail;
+run separate builds or set `-Pkonfig.buildtype` explicitly. For aggregate/custom
+tasks whose names contain no selection, use explicit build-type/dimension
+properties when a result other than the defaults is required. KMP keeps this
+shared behavior in `commonMain`, including when it has an Android target.
 
 ---
 
@@ -411,6 +432,12 @@ val activeEnv: String? = konfig.getCurrentDimension("env")   // "prod", or null 
 | `konfig.getCurrentDimension(name)`   | `String?`           | Active variant, or `null` when skipped/unknown |
 | `konfig.currentDimension(name)`      | `Provider<String>`  | Lazy variant (absent when skipped/unknown)     |
 
+These queries describe one project-wide selection. Android generation uses
+each variant's metadata, so use `androidComponents.onVariants` for decisions
+that must vary within a simultaneous Android build. A single `isDebug` query
+cannot represent both debug and release; conflicting task-name selections fail
+unless an explicit project-wide build type is supplied.
+
 ---
 
 ## Using Gradle providers as field values
@@ -434,16 +461,29 @@ The generated directory (`build/generated/konfig/`) is automatically added as a 
 
 - `org.jetbrains.kotlin.multiplatform` → `commonMain`
 - `org.jetbrains.kotlin.jvm` → `main`
-- `org.jetbrains.kotlin.android` → `main`
-- `com.android.application` / `com.android.library` → all variants via the
-  `androidComponents` Sources API (AGP 8.1+ required)
+- `com.android.application` / `com.android.library` → one generated directory per
+  variant, including projects using `org.jetbrains.kotlin.android` or AGP built-in Kotlin
 
 The Android wiring uses the modern variant Sources API instead of the
 `AndroidSourceSet` DSL, so it keeps working on **AGP 9.2+** where
 `android.sourceset.disallowProvider` defaults to `true` (passing providers to
 the source-set DSL is rejected). No legacy flag needed.
 
-The `generateKonfig` task is automatically wired as a dependency of all `compileKotlin*` and `sourcesJar` tasks.
+Source directories carry the generating task dependency. Android uses
+`addGeneratedSourceDirectory`; JVM/KMP source sets use task-backed directory
+providers. Compilation, lint, and source publication therefore receive generated
+sources without task-name dependency heuristics.
+
+On Android, tasks such as `generateProdDebugKonfig` write beneath
+`build/generated/konfig/prodDebug/`. `generateKonfig` runs all variant generators,
+and `konfigInfo` runs all variant logging tasks. On JVM/KMP, these retain their
+single-object behavior.
+
+`outputDir` remains configurable. The generator and build cache own only the
+generated file and an ownership record under `build/konfig-state`; other files in
+the source directory are preserved. Renaming the object/package removes its
+previous generated file. Validation completes before files are replaced, and an
+existing file without the generator header is never overwritten.
 
 ---
 

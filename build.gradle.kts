@@ -58,6 +58,11 @@ val functionalTestTask = tasks.register<Test>("functionalTest") {
 	group = "verification"
 	testClassesDirs = functionalTest.output.classesDirs
 	classpath = functionalTest.runtimeClasspath
+	listOf("kotlinVersion", "androidVersion").forEach { setting ->
+		providers.gradleProperty("konfig.test.$setting").orNull?.let {
+			systemProperty("konfig.test.$setting", it)
+		}
+	}
 }
 
 tasks.check { dependsOn(functionalTestTask) }

@@ -6,6 +6,7 @@ import com.bitsycore.konfig.configs.FieldConfig
 import com.bitsycore.konfig.configs.VariantConfig
 import com.bitsycore.konfig.types.BuildType
 import com.bitsycore.konfig.types.KonfigDsl
+import com.bitsycore.konfig.types.isValidDimensionName
 import com.bitsycore.konfig.types.Visibility
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.model.ObjectFactory
@@ -71,6 +72,7 @@ abstract class KonfigExtension @Inject constructor(
         defaultTo: String? = null,
         config: DimensionConfig.() -> Unit
     ) {
+        require(name.isValidDimensionName()) { "konfig: invalid dimension name '$name' (blank, delimiter, or control character)" }
         require(dimensions.none { it.dimensionName == name }) {
             "konfig: dimension '$name' is already declared"
         }
@@ -92,6 +94,7 @@ abstract class KonfigExtension @Inject constructor(
         defaultTo: String? = null,
         config: DimensionConfig.() -> Unit
     ) {
+        require(name.isValidDimensionName()) { "konfig: invalid dimension name '$name' (blank, delimiter, or control character)" }
         require(dimensions.none { it.dimensionName == name }) {
             "konfig: dimension '$name' is already declared"
         }

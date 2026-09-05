@@ -15,6 +15,9 @@ import kotlin.io.path.createTempDirectory
  */
 abstract class FunctionalTestBase {
 
+    protected fun runner(projectDir: File, args: List<String>): GradleRunner = GradleRunner.create()
+        .withProjectDir(projectDir).withPluginClasspath().withArguments(args + "--stacktrace")
+
     /**
      * Creates a fresh temp project directory, invokes [block] with it, then deletes it.
      *
@@ -27,11 +30,7 @@ abstract class FunctionalTestBase {
             projectDir.resolve("settings.gradle.kts")
                 .writeText("""rootProject.name = "test-project"""")
             val run = { args: List<String> ->
-                GradleRunner.create()
-                    .withProjectDir(projectDir)
-                    .withPluginClasspath()
-                    .withArguments(args)
-                    .build()
+                runner(projectDir, args).build()
             }
             block(projectDir, run)
         } finally {
@@ -49,11 +48,7 @@ abstract class FunctionalTestBase {
             projectDir.resolve("settings.gradle.kts")
                 .writeText("""rootProject.name = "test-project"""")
             val run = { args: List<String> ->
-                GradleRunner.create()
-                    .withProjectDir(projectDir)
-                    .withPluginClasspath()
-                    .withArguments(args)
-                    .buildAndFail()
+                runner(projectDir, args).buildAndFail()
             }
             block(projectDir, run)
         } finally {
@@ -63,9 +58,35 @@ abstract class FunctionalTestBase {
 
     /** Finds the single generated `.kt` file inside the project's output tree. */
     protected fun File.generatedFile(): File =
-        walkTopDown().first { it.isFile && it.extension == "kt" }
+        resolve("build/generated/konfig").walkTopDown().first { it.isFile && it.extension == "kt" }
 
     /** Writes a minimal `build.gradle.kts` applying the konfig plugin. */
     protected fun File.writeBuildGradle(content: String) =
         resolve("build.gradle.kts").writeText(content.trimIndent())
+    /** Compile and execute the generated code using the compiler bundled with TestKit's Gradle. */
+    protected fun File.writeCompilingProject(dsl: String, assertions: String) {
+        resolve("Check.kt").writeText(assertions.trimIndent())
+        writeBuildGradle("""
+            plugins { id("com.bitsycore.konfig") }
+            konfig { objectPackage = "com.example" }
+            ${dsl.trimIndent()}
+            val compilerLib = gradle.gradleHomeDir!!.resolve("lib")
+            val stdlib = compilerLib.listFiles()!!.first { it.name.startsWith("kotlin-stdlib-") }
+            val generated = layout.buildDirectory.dir("generated/konfig")
+            val classes = layout.buildDirectory.dir("verified-classes")
+            val compileGenerated = tasks.register<JavaExec>("compileGenerated") {
+                dependsOn("generateKonfig")
+                classpath = files(fileTree(compilerLib) { include("*.jar") })
+                mainClass.set("org.jetbrains.kotlin.cli.jvm.K2JVMCompiler")
+                args("-no-stdlib", "-no-reflect", "-classpath", stdlib.absolutePath,
+                    "-d", classes.get().asFile.absolutePath,
+                    generated.get().asFile.absolutePath, file("Check.kt").absolutePath)
+            }
+            tasks.register<JavaExec>("verifyGenerated") {
+                dependsOn(compileGenerated)
+                classpath = files(classes, stdlib)
+                mainClass.set("CheckKt")
+            }
+        """)
+    }
 }

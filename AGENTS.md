@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to AI agents (Claude, Copilot, Codex, etc.) working in this repository.
+This file provides guidance to AI agents working in this repository.
 
 ## Commands
 
@@ -47,12 +47,19 @@ automatically wired into the consuming project's source sets. Fields can be cons
 overridden per build type (debug/release), or scoped to a named **dimension** (e.g. environment,
 region) each with their own variants.
 
+Android application/library projects register a generator per variant, such as
+`generateProdDebugKonfig`, with output under `build/generated/konfig/prodDebug/`.
+AGP's `debuggable` and exact flavor-dimension metadata drive these tasks.
+JVM/KMP retain shared generation; conflicting task-name selections fail unless
+explicitly overridden. `generateKonfig` and `konfigInfo` aggregate variant tasks
+on standalone Android projects. KMP Android targets retain the commonMain object.
+
 ### Key design constraints
 
 **Configuration cache compatibility** is a hard requirement throughout. This means:
 - Never capture `project` inside a `Provider.map {}` or `Provider.zip {}` lambda, and **never
-  access `project` inside a `@TaskAction`** — both break caching. Use only declared
-  `@Input`/`@OutputDirectory` properties inside task actions.
+  access `project` inside a `@TaskAction`** — both break caching. Use declared
+  task properties inside task actions.
 - Use `Class<T>` (`.javaObjectType`) instead of `KClass<T>` — Kotlin's `KClass` uses
   `SoftReference` internally which Gradle can't serialize.
 - Use `gradlePropertiesPrefixedBy()` to read groups of properties — **note:** in Gradle 9.x this
@@ -70,6 +77,17 @@ region) each with their own variants.
 in `MapProperty<String, String>` rather than a managed-type `ListProperty`. Values are
 type-encoded as `"TYPE:rawValue"` (e.g. `"String:hello"`, `"Int:42"`). This collapses 6 separate
 per-type maps down to one per scope and avoids Gradle's `@Nested` managed-type restrictions.
+Collections use `"Value:<Kotlin type>\n<initializer>"`. `FieldValueType` snapshots
+generic types into strings/lists; never retain KType/KClass in the DSL graph.
+
+**Output ownership:** `generatedFile` and `ownershipFile` are managed
+`@OutputFile` properties. `outputDirectory` is `@Internal`; never annotate the
+shared directory as an output or delete it recursively. `sourceDirectory` is
+an internal directory view zipped from `generatedFile` and `outputDirectory` so
+source consumers inherit the file's producer dependency. Android registers that
+view with `addGeneratedSourceDirectory`. Keep the file producer in this chain.
+The ownership record stores a relative path; validate all inputs before replacing
+files and preserve unrelated files on both execution and build-cache restoration.
 
 ### DSL design
 
@@ -89,7 +107,7 @@ per-type maps down to one per scope and avoids Gradle's `@Nested` managed-type r
 
 1. Explicit Gradle property: `-Pkonfig.dimension.<name>=<variant>`
 2. `konfig.properties` file in the project directory: `konfig.dimension.<name>=<variant>`
-3. Task-name detection (variant name substring match, if not disabled by `konfig.android.flavordetection=false`)
+3. Exact Android flavor-dimension metadata, or camelCase task-name matching for shared JVM/KMP generation (unless `konfig.android.flavordetection=false`)
 4. `defaultTo` fallback declared in DSL
 5. **Omitted silently** if none of the above — no crash, dimension object not generated
 

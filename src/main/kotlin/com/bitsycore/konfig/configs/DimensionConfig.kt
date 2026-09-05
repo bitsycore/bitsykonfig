@@ -50,6 +50,7 @@ class DimensionConfig @PublishedApi internal constructor(
      * to merge additional fields.
      */
     fun variant(name: String, config: VariantConfig.() -> Unit) {
+        require(name.isNotEmpty() && '\t' !in name) { "konfig: variant name must be nonempty and cannot contain tabs" }
         val v = variants.getOrPut(name) { VariantConfig(name) }
         config(v)
     }

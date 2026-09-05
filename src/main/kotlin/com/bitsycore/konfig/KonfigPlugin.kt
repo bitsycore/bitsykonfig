@@ -9,9 +9,11 @@ import com.bitsycore.konfig.types.BuildType
 import com.bitsycore.konfig.types.Visibility
 import com.bitsycore.konfig.types.CollectionLiteral
 import com.bitsycore.konfig.types.containsWordCamelCase
+import com.bitsycore.konfig.types.isValidKotlinIdentifier
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.TaskProvider
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinSingleTargetExtension
 import java.util.*
@@ -22,6 +24,7 @@ private data class DimensionContext(
 	val fileProps: Map<String, String>,
 	val flavorDetect: Boolean,
 	val taskNames: List<String>,
+	val androidFlavors: Map<String, String> = emptyMap(),
 )
 
 class KonfigPlugin : Plugin<Project> {
@@ -83,7 +86,7 @@ class KonfigPlugin : Plugin<Project> {
 			.map { BuildType.resolve(it) ?: BuildType.RELEASE }
 			.orElse(
 				buildTypeDetectionEnabled.zip(taskNamesProvider) { enabled, names ->
-					if (enabled) BuildType.resolve(names.joinToString(" ")) ?: BuildType.RELEASE
+					if (enabled) BuildType.resolveTasks(names) ?: BuildType.RELEASE
 					else BuildType.RELEASE
 				}
 			)
@@ -105,7 +108,7 @@ class KonfigPlugin : Plugin<Project> {
 						!enabled -> "detection disabled by konfig.android.buildtypedetection=false, using RELEASE"
 						names.isEmpty() -> "no tasks running, using RELEASE"
 						else -> {
-							val resolved = BuildType.resolve(names.joinToString(" "))
+							val resolved = BuildType.resolveTasks(names)
 							if (resolved != null)
 								"task-name detection matched ${resolved.name.lowercase()} in [${names.joinToString()}]"
 							else
@@ -124,16 +127,6 @@ class KonfigPlugin : Plugin<Project> {
 				DimensionContext(gradleProps = gp, fileProps = fp, flavorDetect = fe, taskNames = names)
 			}
 
-		// Encodes resolution status for EVERY declared dimension (including skipped ones).
-		// Format per entry: "<TAG>\t<variant>\t<reason>"
-		//   TAG = OK | WARN_UNKNOWN | WARN_AMBIGUOUS | SKIP | ERROR
-		val dimensionResolutionLogProvider: Provider<Map<String, String>> =
-			buildTypeProvider.zip(combinedProps) { _, ctx ->
-				extension.dimensions.associate { dim ->
-					dim.dimensionName to resolveWithSource(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames)
-				}
-			}
-
 		// =========================================================================
 		// MARK: Build-script query wiring (konfig.isDebug / konfig.getCurrentDimension)
 		// =========================================================================
@@ -142,7 +135,7 @@ class KonfigPlugin : Plugin<Project> {
 		extension.dimensionResolverInternal = { dimName ->
 			combinedProps.map { ctx ->
 				extension.dimensions.firstOrNull { it.dimensionName == dimName }?.let { dim ->
-					resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames)
+					resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors)
 				}
 			}
 		}
@@ -153,73 +146,89 @@ class KonfigPlugin : Plugin<Project> {
 
 		val forceRegen = project.providers.gradleProperty("konfig.force").isPresent
 
-		// Untracked logging task: runs on EVERY build (even fully cached ones) so the
-		// selected build type / dimension variants always appear in the logs.
-		val infoTask = project.tasks.register("konfigInfo", KonfigInfoTask::class.java) {
-			description = "Prints the resolved konfig build type and dimension variants."
-			group = "konfig"
-			moduleName.set(project.name)
-			buildType.set(buildTypeProvider)
-			buildTypeSource.set(buildTypeSourceProvider)
-			dimensionResolutionLog.set(dimensionResolutionLogProvider)
-		}
+		fun registerGeneration(
+			taskName: String,
+			infoName: String,
+			buildTypeProvider: Provider<BuildType>,
+			buildTypeSourceProvider: Provider<String>,
+			combinedProps: Provider<DimensionContext>,
+		): TaskProvider<GenerateKonfigTask> {
+			val dimensionResolutionLogProvider = buildTypeProvider.zip(combinedProps) { _, ctx ->
+				extension.dimensions.associate { dim ->
+					dim.dimensionName to resolveWithSource(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors)
+				}
+			}
 
-		val generateTask = project.tasks.register("generateKonfig", GenerateKonfigTask::class.java).apply {
-			configure {
-				if (forceRegen) outputs.upToDateWhen { false }
-				dependsOn(infoTask)
-
+			// Untracked logging task: runs on EVERY build (even fully cached ones) so the
+			// selected build type / dimension variants always appear in the logs.
+			val infoTask = project.tasks.register(infoName, KonfigInfoTask::class.java) {
+				description = "Prints the resolved konfig build type and dimension variants."
+				group = "konfig"
 				moduleName.set(project.name)
 				buildType.set(buildTypeProvider)
-				// Only ERROR entries: full logs (task-name dependent) are on konfigInfo,
-				// keeping this task's inputs stable across invocations.
-				dimensionResolutionLog.set(
-					dimensionResolutionLogProvider.map { log ->
-						log.filterValues { it.startsWith("ERROR") }
-					}
-				)
-				flatDimensionNames.set(
-					project.providers.provider {
-						extension.dimensions.filter { it.flat }.map { it.dimensionName }.toSet()
-					}
-				)
-				outputDirectory.set(extension.outputDir)
-				objectPackage.set(extension.objectPackageProp)
-				objectName.set(extension.objectNameProp)
-				objectVisibility.set(extension.objectVisibilityProp)
+				buildTypeSource.set(buildTypeSourceProvider)
+				dimensionResolutionLog.set(dimensionResolutionLogProvider)
+			}
 
-				// ── Global fields ─────────────────────────────────────────────
-				globalFields.set(resolveFields(buildTypeProvider, extension.globalFields))
+			return project.tasks.register(taskName, GenerateKonfigTask::class.java).apply {
+				configure {
+					if (forceRegen) outputs.upToDateWhen { false }
+					dependsOn(infoTask)
 
-				// ── Dimension metadata ────────────────────────────────────────
-				activeDimensionNames.set(
-					buildTypeProvider.zip(combinedProps) { _, ctx ->
-						extension.dimensions.mapNotNull { dim ->
-							resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames)
-								?: return@mapNotNull null
-							dim.dimensionName
+					moduleName.set(project.name)
+					buildType.set(buildTypeProvider)
+					// Only ERROR entries: full logs (task-name dependent) are on konfigInfo,
+					// keeping this task's inputs stable across invocations.
+					dimensionResolutionLog.set(
+						dimensionResolutionLogProvider.map { log ->
+							log.filterValues { it.startsWith("ERROR") }
 						}
-					}
-				)
-				dimensionObjectNames.set(
-					buildTypeProvider.map {
-						extension.dimensions.associate { dim -> dim.dimensionName to dim.objectName() }
-					}
-				)
-				dimensionActiveVariants.set(
-					buildTypeProvider.zip(combinedProps) { _, ctx ->
-						extension.dimensions.mapNotNull { dim ->
-							val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames)
-								?: return@mapNotNull null
-							dim.dimensionName to sv
-						}.toMap()
-					}
-				)
+					)
+					flatDimensionNames.set(
+						project.providers.provider {
+							extension.dimensions.filter { it.flat }.map { it.dimensionName }.toSet()
+						}
+					)
+					outputDirectory.set(extension.outputDir)
+					ownershipFile.set(project.layout.buildDirectory.file("konfig-state/$taskName.txt"))
+					objectPackage.set(extension.objectPackageProp)
+					objectName.set(extension.objectNameProp)
+					objectVisibility.set(extension.objectVisibilityProp)
 
-				// ── Dimension fields ──────────────────────────────────────────
-				dimensionFields.set(resolveDimensionFields(buildTypeProvider, combinedProps, extension))
+					// ── Global fields ─────────────────────────────────────────────
+					globalFields.set(resolveFields(buildTypeProvider, extension.globalFields))
+
+					// ── Dimension metadata ────────────────────────────────────────
+					activeDimensionNames.set(
+						buildTypeProvider.zip(combinedProps) { _, ctx ->
+							extension.dimensions.mapNotNull { dim ->
+								resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors)
+									?: return@mapNotNull null
+								dim.dimensionName
+							}
+						}
+					)
+					dimensionObjectNames.set(
+						buildTypeProvider.map {
+							extension.dimensions.associate { dim -> dim.dimensionName to dim.objectName() }
+						}
+					)
+					dimensionActiveVariants.set(
+						buildTypeProvider.zip(combinedProps) { _, ctx ->
+							extension.dimensions.mapNotNull { dim ->
+								val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors)
+									?: return@mapNotNull null
+								dim.dimensionName to sv
+							}.toMap()
+						}
+					)
+
+					// ── Dimension fields ──────────────────────────────────────────
+					dimensionFields.set(resolveDimensionFields(buildTypeProvider, combinedProps, extension))
+				}
 			}
 		}
+		val generateTask = registerGeneration("generateKonfig", "konfigInfo", buildTypeProvider, buildTypeSourceProvider, combinedProps)
 
 		// =========================================================================
 		// MARK: Auto Sourceset
@@ -227,15 +236,11 @@ class KonfigPlugin : Plugin<Project> {
 
 		project.plugins.withId("org.jetbrains.kotlin.multiplatform") {
 			project.extensions.findByType(KotlinMultiplatformExtension::class.java)
-				?.sourceSets?.findByName("commonMain")?.kotlin?.srcDir(extension.outputDir)
+				?.sourceSets?.findByName("commonMain")?.kotlin?.srcDir(generateTask.flatMap { it.sourceDirectory })
 		}
 		project.plugins.withId("org.jetbrains.kotlin.jvm") {
 			project.extensions.findByType(KotlinSingleTargetExtension::class.java)
-				?.sourceSets?.findByName("main")?.kotlin?.srcDir(extension.outputDir)
-		}
-		project.plugins.withId("org.jetbrains.kotlin.android") {
-			project.extensions.findByType(KotlinSingleTargetExtension::class.java)
-				?.sourceSets?.findByName("main")?.kotlin?.srcDir(extension.outputDir)
+				?.sourceSets?.findByName("main")?.kotlin?.srcDir(generateTask.flatMap { it.sourceDirectory })
 		}
 		listOf("com.android.application", "com.android.library").forEach { androidPluginId ->
 			project.plugins.withId(androidPluginId) {
@@ -244,27 +249,42 @@ class KonfigPlugin : Plugin<Project> {
 				// Register the generated directory through the variant Sources API instead.
 				project.extensions.findByType(AndroidComponentsExtension::class.java)
 					?.onVariants { variant ->
-						val vOutDir = extension.outputDir.get().asFile
-						vOutDir.mkdirs()
-						variant.sources.kotlin?.addStaticSourceDirectory(vOutDir.absolutePath)
+						// KMP shares one object through the task-backed commonMain source directory.
+						if (project.plugins.hasPlugin("org.jetbrains.kotlin.multiplatform")) return@onVariants
+						val variantName = variant.name
+						val suffix = variantName.replaceFirstChar { it.uppercase() }
+						val androidBuildType = if (variant.debuggable) BuildType.DEBUG else BuildType.RELEASE
+						val flavors = variant.productFlavors.toMap()
+						val selectedType = rawBuildTypeProp.map { BuildType.resolve(it) ?: BuildType.RELEASE }
+							.orElse(buildTypeDetectionEnabled.map { if (it) androidBuildType else BuildType.RELEASE })
+						val source = rawBuildTypeProp.map { "explicit property -Pkonfig.buildtype=$it" }
+							.orElse(buildTypeDetectionEnabled.map { enabled ->
+								if (enabled) "Android variant '$variantName' (debuggable=${androidBuildType == BuildType.DEBUG})"
+								else "detection disabled, using RELEASE"
+							})
+						val context = combinedProps.map { ctx -> ctx.copy(taskNames = emptyList(), androidFlavors = flavors) }
+						val variantTask = registerGeneration("generate${suffix}Konfig", "konfig${suffix}Info", selectedType, source, context)
+						// External KGP (AGP 8) consumes generated Kotlin through the Java source API;
+						// AGP's built-in Kotlin consumes the dedicated Kotlin source API.
+						val sources = if (project.plugins.hasPlugin("org.jetbrains.kotlin.android")) variant.sources.java
+							else variant.sources.kotlin ?: variant.sources.java
+						sources?.addGeneratedSourceDirectory(variantTask, GenerateKonfigTask::sourceDirectory)
+						variantTask.configure {
+							outputDirectory.set(extension.outputDir.dir(variantName))
+							// Replace AGP's default directory with the configurable directory, retaining
+							// the @OutputFile producer. Gradle never owns/deletes neighboring sources.
+							sourceDirectory.set(generatedFile.zip(outputDirectory) { _, directory -> directory })
+						}
+						generateTask.configure { enabled = false; dependsOn(variantTask) }
+						project.tasks.named("konfigInfo").configure {
+							enabled = false
+							dependsOn("konfig${suffix}Info")
+						}
 					}
 			}
 		}
 
-		// ==============================================
-		// MARK: Task Dependency
-		// ==============================================
 
-		project.tasks.configureEach {
-			if (
-				name.contains("sourcesJar") || name.contains("SourcesJar")
-				|| name.contains("compileKotlin")
-				|| (name.startsWith("compile") && name.contains("Kotlin"))
-				|| (name.startsWith("compile") && name.contains("Main"))
-			) {
-				dependsOn(generateTask)
-			}
-		}
 	}
 
 	// ==============================================
@@ -280,9 +300,10 @@ class KonfigPlugin : Plugin<Project> {
 		gradleProps: Map<String, String>,
 		fileProps: Map<String, String>,
 		flavorDetect: Boolean,
-		taskNames: List<String>
+		taskNames: List<String>,
+		androidFlavors: Map<String, String> = emptyMap(),
 	): String? {
-		val encoded = resolveWithSource(dim, gradleProps, fileProps, flavorDetect, taskNames)
+		val encoded = resolveWithSource(dim, gradleProps, fileProps, flavorDetect, taskNames, androidFlavors)
 		val parts   = encoded.split("\t", limit = 3)
 		return when (parts[0]) {
 			"OK" -> parts.getOrNull(1)?.takeIf { it.isNotEmpty() }
@@ -305,7 +326,8 @@ class KonfigPlugin : Plugin<Project> {
 		gradleProps: Map<String, String>,
 		fileProps: Map<String, String>,
 		flavorDetect: Boolean,
-		taskNames: List<String>
+		taskNames: List<String>,
+		androidFlavors: Map<String, String> = emptyMap(),
 	): String {
 		// Validate defaultTo at resolution time
 		if (dim.defaultVariant != null && !dim.variants.containsKey(dim.defaultVariant)) {
@@ -337,23 +359,27 @@ class KonfigPlugin : Plugin<Project> {
 			}
 		}
 
-		// Priority 3: task-name detection
+		// Priority 3: exact Android flavor mapping, or task names for shared generation.
+		if (flavorDetect) {
+			val flavor = androidFlavors[dim.dimensionName]
+			if (flavor != null) return if (flavor in dim.variants) "OK\t$flavor\tAndroid flavor '${dim.dimensionName}=$flavor'"
+				else "ERROR\t\tAndroid flavor '$flavor' is not a known variant for dimension '${dim.dimensionName}'"
+		}
+
+		// Shared generation: task-name detection
 		if (flavorDetect && taskNames.isNotEmpty()) {
-			val rawMatches = dim.variants.keys.filter { variant ->
-				taskNames.any { task -> task.containsWordCamelCase(variant) }
-			}
-			// When every match is a substring of the longest one (e.g. 'prod' inside
-			// 'preProd' for task assemblePreProdRelease), the longest is the real one.
-			val matches = if (rawMatches.size > 1) {
-				val longest = rawMatches.maxBy { it.length }
-				if (rawMatches.all { it == longest || longest.contains(it, ignoreCase = true) }) listOf(longest)
-				else rawMatches
-			} else rawMatches
+			// Resolve overlap within EACH task; separate prod and preProd tasks conflict.
+			val matches = taskNames.flatMap { qualifiedTask ->
+				val task = qualifiedTask.substringAfterLast(':')
+				val raw = dim.variants.keys.filter { task.containsWordCamelCase(it) }
+				val longest = raw.maxByOrNull { it.length }
+				if (longest != null && raw.all { longest.contains(it, ignoreCase = true) }) listOf(longest) else raw
+			}.distinct()
 			when (matches.size) {
 				1 -> return "OK\t${matches.first()}\ttask-name detection: '${matches.first()}' " +
 					"found in [${taskNames.joinToString()}]"
-				in 2..Int.MAX_VALUE -> return "WARN_AMBIGUOUS\t\ttask names matched multiple variants " +
-					"${matches.sorted()} in [${taskNames.joinToString()}] -- dimension skipped"
+				in 2..Int.MAX_VALUE -> return "ERROR\t\tconflicting variants ${matches.sorted()} " +
+					"in tasks [${taskNames.joinToString()}]. Run separate builds or select -P$propKey explicitly."
 			}
 		}
 
@@ -389,7 +415,7 @@ class KonfigPlugin : Plugin<Project> {
 		buildType.zip(combined) { bt, ctx ->
 			buildMap {
 				for (dim in extension.dimensions) {
-					val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames) ?: continue
+					val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors) ?: continue
 					val vc = dim.variants[sv] ?: continue
 					val prefix = "${dim.dimensionName}|"
 					for (field in mergeVariantFields(dim.commonConfig.fields, vc.fields)) {
@@ -448,7 +474,7 @@ class KonfigPlugin : Plugin<Project> {
 		val artifact = projectName
 			.replace("-", ".")
 			.replace(Regex("[^A-Za-z0-9.]"), "")
-		return if (group != null) "$group.$artifact" else artifact.ensureValidPackage()
+		return (if (group != null) "$group.$artifact" else artifact).ensureValidPackage()
 	}
 
 	private fun String.ensureValidPackage(): String = split(".")
@@ -456,9 +482,10 @@ class KonfigPlugin : Plugin<Project> {
 		.joinToString(".") { segment ->
 			val cleaned = segment.replace(Regex("[^A-Za-z0-9_]"), "")
 			when {
-				cleaned.isBlank()         -> "_"
+				cleaned.isBlank()         -> "generated"
 				cleaned.first().isDigit() -> "_$cleaned"
+				!cleaned.lowercase().isValidKotlinIdentifier() -> "_${cleaned}pkg"
 				else                      -> cleaned
 			}
-		}.lowercase()
+		}.lowercase().ifEmpty { "generated" }
 }
