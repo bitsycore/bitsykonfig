@@ -139,6 +139,50 @@ konfig {
 | `Long`      | `field("MAX_SIZE", 1_000_000L)`            |
 | `Float`     | `field("RATIO", 1.5f)`                     |
 | `Double`    | `field("PI", 3.14159)`                     |
+| `Byte`, `Short`, `Char` | `field("SEPARATOR", ':')`       |
+| `List<T>`   | `field("HOSTS", listOf("api.example.com"))` |
+| `Map<K, V>` | `field("PORTS", mapOf("https" to 443))`    |
+| `Array<T>`  | `field("REGIONS", arrayOf("eu", "us"))`  |
+| Primitive arrays | `field("RETRIES", intArrayOf(1, 3, 5))` |
+
+### Lists, maps, and arrays
+
+Collections generate ordinary `val` properties initialized with `listOf`,
+`mapOf`, or an array factory. They work with providers, build-type overrides,
+dimension variants, `common {}`, and flat dimensions:
+
+```kotlin
+konfig {
+    field("HOSTS", listOf("api.example.com")).debug(listOf("localhost"))
+    field("PORTS", mapOf("http" to 80, "https" to 443))
+    field("REGIONS", arrayOf("eu", "us"))
+    field("RETRIES", arrayOf(1, 3, 5))
+    field("EMPTY", emptyList<String>())
+    field("ROUTES", mapOf("primary" to listOf("/health", "/status")))
+}
+```
+
+```kotlin
+val HOSTS: List<String> = listOf<String>("api.example.com")
+val PORTS: Map<String, Int> = mapOf<String, Int>("http" to 80, "https" to 443)
+val REGIONS: Array<String> = arrayOf<String>("eu", "us")
+val RETRIES: IntArray = intArrayOf(1, 3, 5)
+val EMPTY: List<String> = listOf<String>()
+val ROUTES: Map<String, List<String>> = mapOf<String, List<String>>("primary" to listOf<String>("/health", "/status"))
+```
+
+Arrays of non-null primitive elements are specialized: `Array<Int>` generates
+`IntArray` with `intArrayOf`. The same applies to Boolean, Byte, Short, Char,
+Long, Float, and Double. Existing primitive arrays retain their primitive type.
+Nullable arrays such as `Array<Int?>` stay generic. Specialization also applies
+inside nested collections, so `List<Array<Int>>` generates `List<IntArray>`.
+
+Empty collections retain the type supplied in the DSL. Nullable elements,
+nested lists/maps/arrays, and mixed values explicitly typed as `Any` are
+supported; values must ultimately be supported scalars or collections.
+Custom objects and sets are rejected. Lists and maps expose read-only Kotlin
+interfaces; generated arrays are mutable. Collection properties are not `const`.
+Build-type scope overrides must keep the declared field type.
 
 ### Build-type overrides
 

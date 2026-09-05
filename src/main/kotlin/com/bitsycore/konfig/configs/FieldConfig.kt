@@ -1,6 +1,7 @@
 package com.bitsycore.konfig.configs
 
 import com.bitsycore.konfig.types.BuildType
+import com.bitsycore.konfig.types.FieldValueType
 import org.gradle.api.Transformer
 import org.gradle.api.provider.Provider
 import org.gradle.api.specs.Spec
@@ -21,7 +22,8 @@ class FieldConfig<T : Any> @PublishedApi internal constructor(
      * The unconditional default value, or `null` if this field was declared only inside
      * a scope block (debug/release) and has no fallback outside that scope.
      */
-    internal val default: Provider<T>?
+    internal val default: Provider<T>?,
+    @PublishedApi internal val valueType: FieldValueType? = null,
 ) {
 	@PublishedApi
 	internal val buildTypeOverrides: MutableMap<BuildType, Provider<T>> = mutableMapOf()

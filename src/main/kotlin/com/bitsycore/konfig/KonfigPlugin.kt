@@ -7,6 +7,7 @@ import com.bitsycore.konfig.configs.DimensionConfig
 import com.bitsycore.konfig.configs.FieldConfig
 import com.bitsycore.konfig.types.BuildType
 import com.bitsycore.konfig.types.Visibility
+import com.bitsycore.konfig.types.CollectionLiteral
 import com.bitsycore.konfig.types.containsWordCamelCase
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -401,6 +402,11 @@ class KonfigPlugin : Plugin<Project> {
 	/** Encodes a [FieldConfig] value for [buildType] as `"TYPE:rawValue"`, or `null` if absent. */
 	private fun encodeField(field: FieldConfig<*>, buildType: BuildType): Pair<String, String>? {
 		val value = field.resolve(buildType)?.orNull ?: return null
+		if (value is List<*> || value is Map<*, *> || value.javaClass.isArray || value is Byte || value is Short || value is Char) {
+			val type = requireNotNull(field.valueType) { "konfig: missing type for field '${field.fieldName}'" }
+			val encoded = "Value:${CollectionLiteral.type(type)}\n${CollectionLiteral.value(value, type)}"
+			return field.fieldName to encoded
+		}
 		val encoded = when (value) {
 			is String  -> "String:$value"
 			is Boolean -> "Boolean:$value"
@@ -408,7 +414,7 @@ class KonfigPlugin : Plugin<Project> {
 			is Long    -> "Long:$value"
 			is Float   -> "Float:$value"
 			is Double  -> "Double:$value"
-			else       -> return null
+			else       -> error("konfig: unsupported value type '${value.javaClass.name}' for field '${field.fieldName}'")
 		}
 		return field.fieldName to encoded
 	}

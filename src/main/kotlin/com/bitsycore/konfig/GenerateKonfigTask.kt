@@ -20,6 +20,8 @@ import org.gradle.api.tasks.TaskAction
  * Fields are stored in flat [MapProperty]<String, String> maps where each value is
  * type-encoded as `"<TYPE>:<literal>"` (e.g. `"String:hello"`, `"Int:42"`).
  * Dimension fields use keys of the form `"<dimName>|<fieldName>"`.
+ * Collections use `"Value:<Kotlin type>\n<initializer>"`, with literals escaped by
+ * the encoder. Only strings, not reflection types or collection instances, reach task inputs.
  * This collapses 6 separate per-type maps down to one per scope.
  */
 @CacheableTask
@@ -282,9 +284,10 @@ abstract class GenerateKonfigTask : DefaultTask() {
                     BuildType.RELEASE -> """${indent}const val $name: Boolean = $raw"""
                 }
 				"Int"     -> """${indent}const val $name: Int = $raw"""
-				"Long"    -> """${indent}const val $name: Long = ${raw}L"""
+				"Long"    -> """${indent}const val $name: Long = ${if (raw == Long.MIN_VALUE.toString()) "Long.MIN_VALUE" else "${raw}L"}"""
 				"Float"   -> """${indent}const val $name: Float = ${raw.toFloat().toKotlinFloat()}"""
 				"Double"  -> """${indent}const val $name: Double = ${raw.toDouble().toKotlinDouble()}"""
+				"Value"   -> "${indent}val $name: ${raw.substringBefore('\n')} = ${raw.substringAfter('\n')}"
 				else      -> return@forEach // unknown type — skip
 			}
 			appendLine(line)

@@ -2,7 +2,9 @@ package com.bitsycore.konfig.configs
 
 import com.bitsycore.konfig.types.BuildType
 import com.bitsycore.konfig.types.KonfigDsl
+import com.bitsycore.konfig.types.FieldValueType
 import org.gradle.api.provider.Provider
+import kotlin.reflect.typeOf
 
 // ==============================================================================
 // MARK: FieldHandle with modifier
@@ -79,10 +81,13 @@ class VariantConfig @PublishedApi internal constructor(val variantName: String) 
     internal inline fun <reified T : Any> getOrCreateField(name: String): FieldConfig<T> {
         val existing = fields.firstOrNull { it.fieldName == name }
         if (existing != null) {
+            require(existing.valueType == FieldValueType.from(typeOf<T>())) {
+                "konfig: field '$name' must use the same type in every build-type scope"
+            }
             @Suppress("UNCHECKED_CAST")
             return existing as FieldConfig<T>
         }
-        val fc = FieldConfig(name, T::class.javaObjectType, null)
+        val fc = FieldConfig(name, T::class.javaObjectType, null, FieldValueType.from(typeOf<T>()))
         fields.add(fc)
         return fc
     }
@@ -97,7 +102,7 @@ class VariantConfig @PublishedApi internal constructor(val variantName: String) 
         require(fields.none { it.fieldName == name }) {
             "konfig: field '$name' is already declared in variant '$variantName'"
         }
-        val fc = FieldConfig(name, T::class.javaObjectType, constantProvider(default))
+        val fc = FieldConfig(name, T::class.javaObjectType, constantProvider(default), FieldValueType.from(typeOf<T>()))
         fields.add(fc)
         return FieldHandle(fc)
     }
@@ -106,7 +111,7 @@ class VariantConfig @PublishedApi internal constructor(val variantName: String) 
         require(fields.none { it.fieldName == name }) {
             "konfig: field '$name' is already declared in variant '$variantName'"
         }
-        val fc = FieldConfig(name, T::class.javaObjectType, default)
+        val fc = FieldConfig(name, T::class.javaObjectType, default, FieldValueType.from(typeOf<T>()))
         fields.add(fc)
         return FieldHandle(fc)
     }
