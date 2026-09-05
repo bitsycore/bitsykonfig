@@ -14,7 +14,7 @@ import org.gradle.work.DisableCachingByDefault
  * [GenerateKonfigTask] only logs when it actually executes, so a cached /
  * up-to-date build would silently hide which variant is active. This task is
  * untracked (never up-to-date, never cached) and `generateKonfig` depends on
- * it, guaranteeing the selection is always visible in the logs — even on a
+ * it, guaranteeing the selection is always visible in the logs - even on a
  * fully cached build with the configuration cache enabled.
  */
 @DisableCachingByDefault(because = "pure logging task, must run on every build")

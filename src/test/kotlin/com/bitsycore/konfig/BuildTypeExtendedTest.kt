@@ -128,20 +128,20 @@ class BuildTypeExtendedTest {
     }
 
     @Test fun `prereleased does not resolve RELEASE`() {
-        // "release" is preceded by lowercase 'e' in "prere[lease]" — but "release"
+        // "release" is preceded by lowercase 'e' in "prere[lease]" - but "release"
         // starts after "prere", let's verify actual behaviour via the regex:
         // lookbehind (?<![a-z]) fails because char before 'r' of "release" is 'e'
         assertNull(BuildType.resolve("prereleased"))
     }
 
     @Test fun `released does not resolve RELEASE`() {
-        // "released" — 'd' after "release" is NOT a lowercase letter... wait,
+        // "released" - 'd' after "release" is NOT a lowercase letter... wait,
         // actually the regex checks (?![a-z]) so 'd' fails the lookahead.
         assertNull(BuildType.resolve("released"))
     }
 
     @Test fun `debugMode resolves DEBUG`() {
-        // 'M' after "debug" — uppercase, not [a-z], so lookahead passes
+        // 'M' after "debug" - uppercase, not [a-z], so lookahead passes
         assertEquals(BuildType.DEBUG, BuildType.resolve("debugMode"))
     }
 

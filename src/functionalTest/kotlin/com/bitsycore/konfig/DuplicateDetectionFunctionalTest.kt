@@ -73,7 +73,7 @@ class DuplicateDetectionFunctionalTest : FunctionalTestBase() {
     }
 
     @Test fun `same field name in different variants is allowed`() = withProject { dir, run ->
-        // Different variants may each define the same field name — that is the whole point
+        // Different variants may each define the same field name - that is the whole point
         dir.writeBuildGradle("""
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
@@ -106,7 +106,7 @@ class DuplicateDetectionFunctionalTest : FunctionalTestBase() {
         assertTrue(result.output.contains("generateKonfig"))
     }
 
-    // ── Duplicate dimension name — error message ──────────────────────────────
+    // ── Duplicate dimension name - error message ──────────────────────────────
 
     @Test fun `duplicate dimension error message contains dimension name`() = withFailingProject { dir, run ->
         dir.writeBuildGradle("""
@@ -121,7 +121,7 @@ class DuplicateDetectionFunctionalTest : FunctionalTestBase() {
         assertTrue(result.output.contains("my-dim"))
     }
 
-    // ── Duplicate global field — error message ────────────────────────────────
+    // ── Duplicate global field - error message ────────────────────────────────
 
     @Test fun `duplicate global field error message contains field name`() = withFailingProject { dir, run ->
         dir.writeBuildGradle("""

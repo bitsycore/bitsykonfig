@@ -9,9 +9,9 @@ import kotlin.io.path.createTempDirectory
  * Base class for all functional tests.
  *
  * Provides:
- * - [withProject] — creates a temp Gradle project, runs it, then cleans up.
- * - [File.generatedFile] — walks the output dir to find the generated `.kt` file.
- * - [File.writeBuildGradle] — shorthand for writing a `build.gradle.kts`.
+ * - [withProject] - creates a temp Gradle project, runs it, then cleans up.
+ * - [File.generatedFile] - walks the output dir to find the generated `.kt` file.
+ * - [File.writeBuildGradle] - shorthand for writing a `build.gradle.kts`.
  */
 abstract class FunctionalTestBase {
 
@@ -40,7 +40,7 @@ abstract class FunctionalTestBase {
 
     /**
      * Same as [withProject] but Gradle is invoked with `buildAndFail()` so a build
-     * failure does NOT throw — the returned [BuildResult] carries the failed output.
+     * failure does NOT throw - the returned [BuildResult] carries the failed output.
      */
     protected fun withFailingProject(block: (projectDir: File, run: (List<String>) -> BuildResult) -> Unit) {
         val projectDir = createTempDirectory("konfig-ft-fail").toFile()

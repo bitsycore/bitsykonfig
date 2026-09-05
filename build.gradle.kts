@@ -80,7 +80,7 @@ publishing {
     //   - "pluginMaven"                       → the real implementation jar (groupId:artifactId:version)
     //   - "konfigPluginMarkerMaven"            → the plugin marker   (pluginId:pluginId.gradle.plugin:version)
     //
-    // We must NOT create a third "pluginMaven" manually — that breaks the marker.
+    // We must NOT create a third "pluginMaven" manually - that breaks the marker.
     // Instead we configure the existing ones via withType.
     publications.withType<MavenPublication>().configureEach {
         // Only decorate the implementation publication, not the marker

@@ -12,7 +12,7 @@ import java.util.function.BiFunction
  *
  * Values are stored as [Provider]<T> so lazy sources (e.g. Gradle property providers)
  * are supported alongside plain constants.  [org.gradle.api.provider.ProviderFactory]
- * is intentionally NOT stored here — it is not configuration-cache serializable and
+ * is intentionally NOT stored here - it is not configuration-cache serializable and
  * must never flow into the object graph captured by task input providers.
  */
 class FieldConfig<T> @PublishedApi internal constructor(

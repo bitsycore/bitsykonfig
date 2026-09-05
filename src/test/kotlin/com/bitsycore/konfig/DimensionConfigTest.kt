@@ -119,7 +119,7 @@ class DimensionConfigTest {
         d.variant("prod") { field("URL", "https://prod.example.com") }
         d.variant("prod") { field("KEY", "secret")                   }
         val v = d.variants["prod"]!!
-        // Same VariantConfig instance reused — two fields total
+        // Same VariantConfig instance reused - two fields total
         assertEquals(2, v.fields.size)
     }
 

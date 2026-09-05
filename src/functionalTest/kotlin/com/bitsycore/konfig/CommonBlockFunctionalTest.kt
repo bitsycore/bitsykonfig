@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 /**
  * Functional tests for the `common {}` block inside a dimension.
  *
- * The common block provides fallback fields for all variants — a variant field
+ * The common block provides fallback fields for all variants - a variant field
  * with the same name must take precedence over the common field.
  */
 class CommonBlockFunctionalTest : FunctionalTestBase() {

@@ -46,7 +46,7 @@ abstract class KonfigExtension @Inject constructor(
         get()      = objectVisibilityProp.get()
         set(value) = objectVisibilityProp.set(value)
 
-    /** Output directory — kept as [DirectoryProperty] for full Gradle lazy semantics. */
+    /** Output directory - kept as [DirectoryProperty] for full Gradle lazy semantics. */
     val outputDir: DirectoryProperty = objects.directoryProperty()
 
     /** Reject missing/unknown dimension selections and invalid explicit build types. */
@@ -68,7 +68,7 @@ abstract class KonfigExtension @Inject constructor(
     @PublishedApi
     internal val dimensions: MutableList<DimensionConfig> = mutableListOf()
 
-    /** Backing store for global fields — reuses [com.bitsycore.konfig.configs.VariantConfig] for its field/debug/release logic. */
+    /** Backing store for global fields - reuses [com.bitsycore.konfig.configs.VariantConfig] for its field/debug/release logic. */
     @PublishedApi
     internal val globalScope: VariantConfig = VariantConfig("\$global")
 
@@ -132,10 +132,10 @@ abstract class KonfigExtension @Inject constructor(
     // MARK: Build-script queries
     // ==============================================================================
 
-    /** Wired by the plugin at apply time — same resolution chain as the generated object. */
+    /** Wired by the plugin at apply time - same resolution chain as the generated object. */
     internal lateinit var buildTypeProviderInternal: Provider<BuildType>
 
-    /** Wired by the plugin at apply time — resolves a dimension with the same recognition logic. */
+    /** Wired by the plugin at apply time - resolves a dimension with the same recognition logic. */
     internal lateinit var dimensionResolverInternal: (String) -> Provider<String>
 
     /** Resolved build type as a lazy provider (`"debug"` / `"release"`). */
@@ -147,7 +147,7 @@ abstract class KonfigExtension @Inject constructor(
         get() = buildTypeProviderInternal.map { it == BuildType.DEBUG }
 
     /**
-     * True when the resolved build type is debug — uses the exact same recognition
+     * True when the resolved build type is debug - uses the exact same recognition
      * as the generated object, so it can drive build-script decisions such as
      * KMP `debugImplementation`-style wiring:
      *

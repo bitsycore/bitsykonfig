@@ -11,7 +11,7 @@ This file provides guidance to AI agents working in this repository.
 # Run unit tests only
 ./gradlew test
 
-# Run functional tests (Gradle TestKit — starts real Gradle builds)
+# Run functional tests (Gradle TestKit - starts real Gradle builds)
 ./gradlew functionalTest
 
 # Run a single functional test
@@ -58,20 +58,20 @@ on standalone Android projects. KMP Android targets retain the commonMain object
 
 **Configuration cache compatibility** is a hard requirement throughout. This means:
 - Never capture `project` inside a `Provider.map {}` or `Provider.zip {}` lambda, and **never
-  access `project` inside a `@TaskAction`** — both break caching. Use declared
+  access `project` inside a `@TaskAction`** - both break caching. Use declared
   task properties inside task actions.
-- Use `Class<T>` (`.javaObjectType`) instead of `KClass<T>` — Kotlin's `KClass` uses
+- Use `Class<T>` (`.javaObjectType`) instead of `KClass<T>` - Kotlin's `KClass` uses
   `SoftReference` internally which Gradle can't serialize.
-- Use `gradlePropertiesPrefixedBy()` to read groups of properties — **note:** in Gradle 9.x this
+- Use `gradlePropertiesPrefixedBy()` to read groups of properties - **note:** in Gradle 9.x this
   returns full property names as keys (prefix is NOT stripped), so always check both
   `dimProps["env"]` and `dimProps["konfig.dimension.env"]`.
-- All DSL field values are wrapped in `Provider<T>` from the start — literals via
+- All DSL field values are wrapped in `Provider<T>` from the start - literals via
   `constantProvider(value)` (a hand-written `ConstantProvider<T>`), external values via
   `providers.gradleProperty()` / `providers.environmentVariable()` etc. **Never store
-  `ProviderFactory` anywhere in the DSL object graph** — it is not config-cache serializable.
+  `ProviderFactory` anywhere in the DSL object graph** - it is not config-cache serializable.
 - `forceRegen` (`konfig.force` property) is evaluated eagerly at configuration time as a plain
-  `Boolean` via `providers.gradleProperty("konfig.force").isPresent` — not inside a provider
-  lambda — so the value is captured by value and is config-cache safe.
+  `Boolean` via `providers.gradleProperty("konfig.force").isPresent` - not inside a provider
+  lambda - so the value is captured by value and is config-cache safe.
 
 **Dimension data in task inputs** uses flat-map encoding (`"<dimName>|<fieldName>"` as map keys)
 in `MapProperty<String, String>` rather than a managed-type `ListProperty`. Values are
@@ -101,14 +101,14 @@ files and preserve unrelated files on both execution and build-cache restoration
 ### DSL design
 
 - **`@KonfigDsl` / `@DslMarker`** is applied to all DSL scope classes to prevent accidental scope leakage.
-- **`ConstantProvider<T>`** wraps literal values — no `ProviderFactory` anywhere in the DSL object graph.
+- **`ConstantProvider<T>`** wraps literal values - no `ProviderFactory` anywhere in the DSL object graph.
 - **`field()` at the top level** returns `FieldHandle<T>` which exposes `.debug(value)` and
-  `.release(value)`, both returning `Unit` — chaining beyond the first call is intentionally impossible.
-- **`debug {}` / `release {}` scope blocks** use `BuildTypedFieldDeclScope` as receiver —
+  `.release(value)`, both returning `Unit` - chaining beyond the first call is intentionally impossible.
+- **`debug {}` / `release {}` scope blocks** use `BuildTypedFieldDeclScope` as receiver -
   `field()` inside these returns `Unit`, since the build type is already fixed by the enclosing scope.
-- **`common {}` block in `DimensionConfig`** — shared fallback fields for all variants; merged in
+- **`common {}` block in `DimensionConfig`** - shared fallback fields for all variants; merged in
   plugin with variant fields taking precedence.
-- **Plain `var` properties on `KonfigExtension`** — `objectPackage`, `objectName`,
+- **Plain `var` properties on `KonfigExtension`** - `objectPackage`, `objectName`,
   `objectVisibility` are user-facing `var` properties backed by internal `Property<T>`
   (`objectPackageProp`, `objectNameProp`, `objectVisibilityProp`) used for lazy task wiring.
 
@@ -118,7 +118,7 @@ files and preserve unrelated files on both execution and build-cache restoration
 2. `konfig.properties` file in the project directory: `konfig.dimension.<name>=<variant>`
 3. Exact Android flavor-dimension metadata, or camelCase task-name matching for shared JVM/KMP generation (unless `konfig.android.flavordetection=false`)
 4. `defaultTo` fallback declared in DSL
-5. **Omitted silently** if none of the above — no crash, dimension object not generated
+5. **Omitted silently** if none of the above - no crash, dimension object not generated
 
 `strictResolution = true` rejects unknown explicit build types, unknown dimension
 property names, and missing/unknown selections. Per-dimension `required = true`
@@ -138,7 +138,7 @@ action can emit structured lifecycle/warning/error log messages without re-runni
 |---------------------------------------------|---------------------------------------------------------------------------------|
 | `-Pkonfig.buildtype=DEBUG\|RELEASE`         | Forces build type; falls back to task-name detection then RELEASE               |
 | `-Pkonfig.dimension.<name>=<variant>`       | Selects a dimension variant explicitly                                          |
-| `-Pkonfig.force`                            | Disables UP-TO-DATE checks — task always re-runs (any value or bare flag works) |
+| `-Pkonfig.force`                            | Disables UP-TO-DATE checks - task always re-runs (any value or bare flag works) |
 | `-Pkonfig.android.buildtypedetection=false` | Disables task-name build-type detection                                         |
 | `-Pkonfig.android.flavordetection=false`    | Disables task-name dimension variant detection                                  |
 
@@ -146,12 +146,12 @@ action can emit structured lifecycle/warning/error log messages without re-runni
 
 | File                          | Role                                                                                                           |
 |-------------------------------|----------------------------------------------------------------------------------------------------------------|
-| `KonfigPlugin.kt`             | Entry point — wires providers, registers task, auto-wires source sets, hooks compile tasks                     |
-| `KonfigExtension.kt`          | DSL (`konfig { }`) — top-level `field()`, `debug {}`, `release {}`, and `dimension()` functions               |
-| `DimensionConfig.kt`          | DSL node for a dimension — holds variants, `common {}` block, `objectNameOverride`, `defaultVariant`           |
-| `VariantConfig.kt`            | DSL node for a variant or common block — `field()` returns `FieldHandle<T>`; `debug {}`/`release {}` supported |
-| `FieldConfig.kt`              | Single typed field — holds default `Provider<T>?` and per-`BuildType` overrides; `resolve()` returns `Provider<T>?` |
-| `GenerateKonfigTask.kt`       | `@CacheableTask` — validates inputs, logs detection results, writes the `.kt` file                             |
+| `KonfigPlugin.kt`             | Entry point - wires providers, registers task, auto-wires source sets, hooks compile tasks                     |
+| `KonfigExtension.kt`          | DSL (`konfig { }`) - top-level `field()`, `debug {}`, `release {}`, and `dimension()` functions               |
+| `DimensionConfig.kt`          | DSL node for a dimension - holds variants, `common {}` block, `objectNameOverride`, `defaultVariant`           |
+| `VariantConfig.kt`            | DSL node for a variant or common block - `field()` returns `FieldHandle<T>`; `debug {}`/`release {}` supported |
+| `FieldConfig.kt`              | Single typed field - holds default `Provider<T>?` and per-`BuildType` overrides; `resolve()` returns `Provider<T>?` |
+| `GenerateKonfigTask.kt`       | `@CacheableTask` - validates inputs, logs detection results, writes the `.kt` file                             |
 | `BuildType.kt`                | `enum` with regex-based task-name detection                                                                    |
 | `Visibility.kt`               | `PUBLIC` / `INTERNAL` enum                                                                                     |
 | `KonfigDsl.kt`                | `@DslMarker` annotation applied to all DSL scope classes                                                       |
@@ -167,8 +167,8 @@ action can emit structured lifecycle/warning/error log messages without re-runni
 - **Repositories:** `https://maven.bitsycore.com/releases` (primary, no auth) and
   `https://maven.pkg.github.com/bitsycore/bitsykonfig-gradle-plugin` (fallback, needs PAT)
 - **JVM target:** 17 (set via `sourceCompatibility` + `KotlinCompile.compilerOptions.jvmTarget`,
-  no toolchain — avoids requiring a specific JDK installation)
-- **AGP dependency:** `compileOnly("com.android.tools.build:gradle:8.7.3")` — never leaked to consumers
+  no toolchain - avoids requiring a specific JDK installation)
+- **AGP dependency:** `compileOnly("com.android.tools.build:gradle:8.7.3")` - never leaked to consumers
 
 ### Publishing
 
@@ -179,7 +179,7 @@ Two Maven publications are created automatically by the `kotlin-dsl` + `gradlePl
 | `pluginMaven`                       | `konfig-gradle-plugin`                   | Implementation jar + sources + POM   |
 | `konfigPluginMarkerMaven`           | `com.bitsycore.konfig.gradle.plugin`     | Marker POM that points to the impl   |
 
-**Never** use `publications { create<MavenPublication>("pluginMaven") { ... } }` — this replaces
+**Never** use `publications { create<MavenPublication>("pluginMaven") { ... } }` - this replaces
 the auto-wired publication and breaks the marker. Always configure existing publications via
 `publications.withType<MavenPublication>().configureEach { ... }`.
 
@@ -210,9 +210,9 @@ Fast, no Gradle processes. Cover DSL model classes and type resolution in isolat
 
 | File                          | What it covers                                                         |
 |-------------------------------|------------------------------------------------------------------------|
-| `BuildTypeExtendedTest.kt`    | `BuildType.resolve()` — all regex edge cases, task names, enum values  |
+| `BuildTypeExtendedTest.kt`    | `BuildType.resolve()` - all regex edge cases, task names, enum values  |
 | `VisibilityTest.kt`           | `Visibility` enum entries, ordinals, valueOf                           |
-| `ConstantProviderTest.kt`     | `constantProvider()` / `ConstantProvider` — all Provider API methods  |
+| `ConstantProviderTest.kt`     | `constantProvider()` / `ConstantProvider` - all Provider API methods  |
 | `FieldConfigTest.kt`          | `FieldConfig` construction, default resolution, build-type overrides   |
 | `VariantConfigTest.kt`        | `VariantConfig` field declarations, duplicate guard, scope blocks      |
 | `DimensionConfigTest.kt`      | `DimensionConfig` objectName derivation, variants, common block        |
@@ -221,7 +221,7 @@ Fast, no Gradle processes. Cover DSL model classes and type resolution in isolat
 
 ### Functional tests (`src/functionalTest/`)
 
-Full Gradle TestKit builds — each test spins up a real Gradle project in a temp directory.
+Full Gradle TestKit builds - each test spins up a real Gradle project in a temp directory.
 `FunctionalTestBase` provides shared helpers (`withProject`, `withFailingProject`, `generatedFile()`, `writeBuildGradle()`).
 
 | File                                  | What it covers                                                                   |

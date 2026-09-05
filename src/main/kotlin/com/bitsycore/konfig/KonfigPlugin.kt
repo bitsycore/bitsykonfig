@@ -332,11 +332,11 @@ class KonfigPlugin : Plugin<Project> {
 	 * Resolves a dimension and encodes the result as a tab-separated string for logging.
 	 *
 	 * Format: `"<TAG>\t<variant>\t<reason>"`
-	 * - TAG = `OK` — active, variant resolved successfully
-	 * - TAG = `WARN_UNKNOWN` — property set but value is not a known variant
-	 * - TAG = `WARN_AMBIGUOUS` — multiple variants matched task names
-	 * - TAG = `SKIP` — no active variant could be determined
-	 * - TAG = `ERROR` — configuration error (e.g. invalid defaultTo)
+	 * - TAG = `OK` - active, variant resolved successfully
+	 * - TAG = `WARN_UNKNOWN` - property set but value is not a known variant
+	 * - TAG = `WARN_AMBIGUOUS` - multiple variants matched task names
+	 * - TAG = `SKIP` - no active variant could be determined
+	 * - TAG = `ERROR` - configuration error (e.g. invalid defaultTo)
 	 */
 	private fun resolveWithSource(
 		dim: DimensionConfig,

@@ -115,7 +115,7 @@ class FieldHandleTest {
     @Test fun `handle with no debug or release set returns null for scope-only field`() {
         val fc = FieldConfig<String>("F", String::class.java, null)
         @Suppress("UNUSED_VARIABLE") val handle = FieldHandle(fc)
-        // No overrides set — resolve returns null
+        // No overrides set - resolve returns null
         assertNull(fc.resolve(BuildType.DEBUG))
         assertNull(fc.resolve(BuildType.RELEASE))
     }
