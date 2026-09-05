@@ -45,7 +45,7 @@ pluginManagement {
     repositories {
         maven {
             name = "GitHubPackages"
-            url  = uri("https://maven.pkg.github.com/bitsycore/bitsykonfig-gradle-plugin")
+            url  = uri("https://maven.pkg.github.com/bitsycore/bitsykonfig")
             credentials {
                 username = providers.gradleProperty("gpr.user").orNull ?: System.getenv("GPR_USER")
                 password = providers.gradleProperty("gpr.key").orNull  ?: System.getenv("GPR_KEY")

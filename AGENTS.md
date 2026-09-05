@@ -165,7 +165,7 @@ action can emit structured lifecycle/warning/error log messages without re-runni
 - **Artifact:** `konfig-gradle-plugin`
 - **Version:** set via `konfig.version` in `gradle.properties` (currently `0.7.0`)
 - **Repositories:** `https://maven.bitsycore.com/releases` (primary, no auth) and
-  `https://maven.pkg.github.com/bitsycore/bitsykonfig-gradle-plugin` (fallback, needs PAT)
+  `https://maven.pkg.github.com/bitsycore/bitsykonfig` (fallback, needs PAT)
 - **JVM target:** 17 (set via `sourceCompatibility` + `KotlinCompile.compilerOptions.jvmTarget`,
   no toolchain - avoids requiring a specific JDK installation)
 - **AGP dependency:** `compileOnly("com.android.tools.build:gradle:8.7.3")` - never leaked to consumers
