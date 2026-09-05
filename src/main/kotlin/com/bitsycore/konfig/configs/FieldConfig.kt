@@ -15,25 +15,25 @@ import java.util.function.BiFunction
  * is intentionally NOT stored here — it is not configuration-cache serializable and
  * must never flow into the object graph captured by task input providers.
  */
-class FieldConfig<T : Any> @PublishedApi internal constructor(
+class FieldConfig<T> @PublishedApi internal constructor(
     val fieldName: String,
     internal val type: Class<T>,
     /**
      * The unconditional default value, or `null` if this field was declared only inside
      * a scope block (debug/release) and has no fallback outside that scope.
      */
-    internal val default: Provider<T>?,
+    internal val default: Provider<out Any>?,
     @PublishedApi internal val valueType: FieldValueType? = null,
 ) {
 	@PublishedApi
-	internal val buildTypeOverrides: MutableMap<BuildType, Provider<T>> = mutableMapOf()
+	internal val buildTypeOverrides: MutableMap<BuildType, Provider<out Any>> = mutableMapOf()
 
     // ── BuildType overrides ───────────────────────────────────────────────────
 
-    fun debug(value: T)             { buildTypeOverrides[BuildType.DEBUG]   = constantProvider(value) }
-    fun debug(value: Provider<T>)   { buildTypeOverrides[BuildType.DEBUG]   = value }
-    fun release(value: T)           { buildTypeOverrides[BuildType.RELEASE] = constantProvider(value) }
-    fun release(value: Provider<T>) { buildTypeOverrides[BuildType.RELEASE] = value }
+    fun debug(value: T)                     { buildTypeOverrides[BuildType.DEBUG]   = constantProvider(value ?: NullFieldValue) }
+    fun debug(value: Provider<T & Any>)     { buildTypeOverrides[BuildType.DEBUG]   = value }
+    fun release(value: T)                   { buildTypeOverrides[BuildType.RELEASE] = constantProvider(value ?: NullFieldValue) }
+    fun release(value: Provider<T & Any>)   { buildTypeOverrides[BuildType.RELEASE] = value }
 
     // ── Resolution ────────────────────────────────────────────────────────────
 
@@ -41,7 +41,7 @@ class FieldConfig<T : Any> @PublishedApi internal constructor(
      * Resolves the effective value for [buildType].
      * Returns `null` if no applicable value exists (field is absent for this context).
      */
-    internal fun resolve(buildType: BuildType): Provider<T>? =
+    internal fun resolve(buildType: BuildType): Provider<out Any>? =
         buildTypeOverrides[buildType] ?: default
 }
 
@@ -80,3 +80,12 @@ private class ConstantProvider<T : Any>(private val value: T) : Provider<T> {
         combiner: BiFunction<in T, in B, out R?>
     ): Provider<R> = ConstantProvider(combiner.apply(value, right.get())!!)
 }
+
+/** Explicit null is present; absent Gradle providers still omit a field. */
+@PublishedApi
+internal object NullFieldValue
+
+@PublishedApi
+@Suppress("UNCHECKED_CAST")
+internal inline fun <reified T> fieldClass(): Class<T> =
+    (kotlin.reflect.typeOf<T>().classifier as kotlin.reflect.KClass<*>).javaObjectType as Class<T>

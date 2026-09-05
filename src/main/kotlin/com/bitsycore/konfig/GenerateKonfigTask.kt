@@ -344,6 +344,7 @@ abstract class GenerateKonfigTask : DefaultTask() {
 				"Float"   -> """${indent}const val $name: Float = ${raw.toFloat().toKotlinFloat()}"""
 				"Double"  -> """${indent}const val $name: Double = ${raw.toDouble().toKotlinDouble()}"""
 				"Value"   -> "${indent}val $name: ${raw.substringBefore('\n')} = ${raw.substringAfter('\n')}"
+				"Getter"  -> "${indent}val $name: ${raw.substringBefore('\n')} get() = ${raw.substringAfter('\n')}"
 				else      -> return@forEach // unknown type — skip
 			}
 			appendLine(line)

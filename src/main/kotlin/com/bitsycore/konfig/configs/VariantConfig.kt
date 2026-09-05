@@ -16,17 +16,17 @@ import kotlin.reflect.typeOf
  * Allows fluent `.debug(value)` / `.release(value)` overrides:
  * ```kotlin
  * field("TIMEOUT", 30).debug(5)
- * field("URL", "https://prod.example.com").debug("https://dev.example.com").release("https://prod.example.com")
+ * field("URL", "https://prod.example.com").debug("https://dev.example.com")
  * ```
  * Not available inside `debug {}` / `release {}` blocks — those return [Unit].
  */
-class FieldHandle<T : Any> @PublishedApi internal constructor(
+class FieldHandle<T> @PublishedApi internal constructor(
     @PublishedApi internal val field: FieldConfig<T>
 ) {
     fun debug(value: T): Unit = field.debug(value)
-    fun debug(value: Provider<T>): Unit = field.debug(value)
+    fun debug(value: Provider<T & Any>): Unit = field.debug(value)
     fun release(value: T): Unit = field.release(value)
-    fun release(value: Provider<T>): Unit = field.release(value)
+    fun release(value: Provider<T & Any>): Unit = field.release(value)
 }
 
 // ==============================================================================
@@ -44,11 +44,11 @@ class BuildTypedFieldDeclScope @PublishedApi internal constructor(
     @PublishedApi internal val buildType: BuildType,
     @PublishedApi internal val owner: VariantConfig
 ) {
-    inline fun <reified T : Any> field(name: String, value: T) {
-        owner.getOrCreateField<T>(name).buildTypeOverrides[buildType] = constantProvider(value)
+    inline fun <reified T> field(name: String, value: T) {
+        owner.getOrCreateField<T>(name).buildTypeOverrides[buildType] = constantProvider(value ?: NullFieldValue)
     }
 
-    inline fun <reified T : Any> field(name: String, value: Provider<T>) {
+    inline fun <reified T> field(name: String, value: Provider<T & Any>) {
         owner.getOrCreateField<T>(name).buildTypeOverrides[buildType] = value
     }
 }
@@ -78,7 +78,7 @@ class VariantConfig @PublishedApi internal constructor(val variantName: String) 
     // ── Internal helpers ──────────────────────────────────────────────────────
 
     @PublishedApi
-    internal inline fun <reified T : Any> getOrCreateField(name: String): FieldConfig<T> {
+    internal inline fun <reified T> getOrCreateField(name: String): FieldConfig<T> {
         val existing = fields.firstOrNull { it.fieldName == name }
         if (existing != null) {
             require(existing.valueType == FieldValueType.from(typeOf<T>())) {
@@ -87,7 +87,7 @@ class VariantConfig @PublishedApi internal constructor(val variantName: String) 
             @Suppress("UNCHECKED_CAST")
             return existing as FieldConfig<T>
         }
-        val fc = FieldConfig(name, T::class.javaObjectType, null, FieldValueType.from(typeOf<T>()))
+        val fc = FieldConfig(name, fieldClass<T>(), null, FieldValueType.from(typeOf<T>()))
         fields.add(fc)
         return fc
     }
@@ -98,20 +98,20 @@ class VariantConfig @PublishedApi internal constructor(val variantName: String) 
      * Declares a field with an unconditional default value.
      * Returns a [FieldHandle] to optionally set `.debug(value)` / `.release(value)` build-type overrides.
      */
-    inline fun <reified T : Any> field(name: String, default: T): FieldHandle<T> {
+    inline fun <reified T> field(name: String, default: T): FieldHandle<T> {
         require(fields.none { it.fieldName == name }) {
             "konfig: field '$name' is already declared in variant '$variantName'"
         }
-        val fc = FieldConfig(name, T::class.javaObjectType, constantProvider(default), FieldValueType.from(typeOf<T>()))
+        val fc = FieldConfig(name, fieldClass<T>(), constantProvider(default ?: NullFieldValue), FieldValueType.from(typeOf<T>()))
         fields.add(fc)
         return FieldHandle(fc)
     }
 
-    inline fun <reified T : Any> field(name: String, default: Provider<T>): FieldHandle<T> {
+    inline fun <reified T> field(name: String, default: Provider<T & Any>): FieldHandle<T> {
         require(fields.none { it.fieldName == name }) {
             "konfig: field '$name' is already declared in variant '$variantName'"
         }
-        val fc = FieldConfig(name, T::class.javaObjectType, default, FieldValueType.from(typeOf<T>()))
+        val fc = FieldConfig(name, fieldClass<T>(), default, FieldValueType.from(typeOf<T>()))
         fields.add(fc)
         return FieldHandle(fc)
     }

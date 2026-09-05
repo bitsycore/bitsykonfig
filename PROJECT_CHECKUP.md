@@ -19,7 +19,7 @@ The Android registration follows the official
 
 **Verification and maintenance**
 
-Final local validation passed all 327 tests (179 unit and 148 functional), with
+The checkup-fix validation passed all 327 tests (179 unit and 148 functional), with
 zero failures or skips, using Kotlin 2.4.0 and AGP 9.3.2 for consumer integration.
 The Kotlin 2.3.0 / AGP 8.13.2 consumer integration run also passed. Local runs used
 JDK 25; the additional JDK 17 leg is configured in CI. `git diff --check` passed.
@@ -59,17 +59,30 @@ several different Android variants simultaneously.
 Invalid identifiers and conflicting automatic selections that previously
 produced broken or incorrect source now fail with an actionable error.
 
+**Additional features implemented after the checkup**
+
+- Opt-in strict resolution, required dimensions, and cross-variant field-schema validation.
+- Android flavor-dimension aliases.
+- Explicit nullable fields, sets, enum references, and unsigned scalar numbers.
+- Boxed-array selection and fresh array-containing values on access.
+
+Per-platform configuration was deferred at the user's request. KMP retains its
+shared object and existing const/inline generation.
+
+Feature validation passed a full check of 331 tests with Kotlin 2.4.0 / AGP 9.3.2.
+A follow-up run passed all eight feature/consumer tests with Kotlin 2.3.0 /
+AGP 8.13.2, including one additional array-policy cache-invalidation test and
+expanded provider-schema, constant-preservation, and Android alias-priority checks.
+Both runs had zero failures or skips.
+
 **Optional feature proposals remaining**
 
 These were roadmap suggestions, not defects, and were not added in this fix pass:
 
 | Proposal | Purpose |
 | --- | --- |
-| strictResolution and per-dimension required | Treat missing/unknown optional selections as errors when requested |
-| Field-schema validation across variants | Require fields and types to agree across selected configurations |
 | Configurable propertiesFile | Share an explicitly selected, tracked configuration file across modules |
 | Target/source-set selection and automatic-wiring toggle | Support custom KMP layouts and integrations |
 | Structured konfigInfo output and configurable verbosity | Export resolution decisions to CI and control normal log output |
-| Collection emission policy | Optionally retain boxed arrays or generate fresh-array getters |
 
 The initial diagnostic projects remain under ignored build/checkup.

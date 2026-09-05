@@ -29,7 +29,7 @@ This file provides guidance to AI agents working in this repository.
 # Publish to maven.bitsycore.com only (requires bitsycore.maven.user + bitsycore.maven.token)
 ./gradlew publishAllPublicationsToBitsycoreRepository
 
-# CI: pushing a version tag (e.g. 0.6.0) publishes to BOTH repos and creates the GitHub release
+# CI: pushing a version tag (e.g. 0.7.0) publishes to BOTH repos and creates the GitHub release
 
 # Publish only the plugin marker artifact (fixes resolution without re-uploading the jar)
 ./gradlew publishKonfigPluginMarkerMavenPublicationToGitHubPackagesRepository
@@ -79,6 +79,15 @@ type-encoded as `"TYPE:rawValue"` (e.g. `"String:hello"`, `"Int:42"`). This coll
 per-type maps down to one per scope and avoids Gradle's `@Nested` managed-type restrictions.
 Collections use `"Value:<Kotlin type>\n<initializer>"`. `FieldValueType` snapshots
 generic types into strings/lists; never retain KType/KClass in the DSL graph.
+Fresh array-containing values use `"Getter:<Kotlin type>\n<initializer>"` when
+`copyArraysOnAccess` is enabled. `specializeArrays` defaults to true; explicit
+primitive arrays always retain their type. Sets, enum references, and unsigned
+scalar numbers are also supported.
+
+Nullable DSL fields use `NullFieldValue` inside a non-null constant provider to
+distinguish explicit null from an absent Gradle provider. Check this marker by
+type, not singleton identity: configuration-cache restoration may recreate it.
+`fieldClass<T>()` immediately converts nullable type reflection to a Java Class.
 
 **Output ownership:** `generatedFile` and `ownershipFile` are managed
 `@OutputFile` properties. `outputDirectory` is `@Internal`; never annotate the
@@ -110,6 +119,14 @@ files and preserve unrelated files on both execution and build-cache restoration
 3. Exact Android flavor-dimension metadata, or camelCase task-name matching for shared JVM/KMP generation (unless `konfig.android.flavordetection=false`)
 4. `defaultTo` fallback declared in DSL
 5. **Omitted silently** if none of the above — no crash, dimension object not generated
+
+`strictResolution = true` rejects unknown explicit build types, unknown dimension
+property names, and missing/unknown selections. Per-dimension `required = true`
+enforces just that dimension's selection. Both default to false. The per-dimension
+`androidDimension` alias defaults to its Konfig name and only affects Android
+metadata lookup. `validateVariantSchema = true` checks effective field names and
+declared types across all variants/build types, including common fallbacks and
+provider presence; its default is false.
 
 `resolveWithSource()` in `KonfigPlugin` returns a tab-separated `"<TAG>\t<variant>\t<reason>"`
 string for every dimension. This is stored as a task input (`dimensionResolutionLog`) so the task
@@ -146,7 +163,7 @@ action can emit structured lifecycle/warning/error log messages without re-runni
 - **Plugin ID:** `com.bitsycore.konfig`
 - **Group:** `com.bitsycore`
 - **Artifact:** `konfig-gradle-plugin`
-- **Version:** set via `konfig.version` in `gradle.properties` (currently `0.6.0`)
+- **Version:** set via `konfig.version` in `gradle.properties` (currently `0.7.0`)
 - **Repositories:** `https://maven.bitsycore.com/releases` (primary, no auth) and
   `https://maven.pkg.github.com/bitsycore/bitsykonfig-gradle-plugin` (fallback, needs PAT)
 - **JVM target:** 17 (set via `sourceCompatibility` + `KotlinCompile.compilerOptions.jvmTarget`,

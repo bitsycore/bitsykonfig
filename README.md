@@ -7,7 +7,7 @@ Fields can be constant, overridden per build type (debug/release), or scoped to 
 **Plugin ID:** `com.bitsycore.konfig`  
 **Group:** `com.bitsycore`  
 **Artifact:** `konfig-gradle-plugin`  
-**Version:** `0.6.0`  
+**Version:** `0.7.0`  
 **JVM target:** 17
 
 ---
@@ -63,7 +63,7 @@ Using a version catalog (`libs.versions.toml`):
 
 ```toml
 [versions]
-konfig = "0.6.0"
+konfig = "0.7.0"
 
 [plugins]
 konfig = { id = "com.bitsycore.konfig", version.ref = "konfig" }
@@ -81,7 +81,7 @@ Or inline:
 
 ```kotlin
 plugins {
-    id("com.bitsycore.konfig") version "0.6.0"
+    id("com.bitsycore.konfig") version "0.7.0"
 }
 ```
 
@@ -141,14 +141,18 @@ konfig {
 | `Double`    | `field("PI", 3.14159)`                     |
 | `Byte`, `Short`, `Char` | `field("SEPARATOR", ':')`       |
 | `List<T>`   | `field("HOSTS", listOf("api.example.com"))` |
+| `Set<T>`    | `field("FEATURES", setOf("search", "export"))` |
 | `Map<K, V>` | `field("PORTS", mapOf("https" to 443))`    |
 | `Array<T>`  | `field("REGIONS", arrayOf("eu", "us"))`  |
 | Primitive arrays | `field("RETRIES", intArrayOf(1, 3, 5))` |
+| Nullable types | `field<String?>("OPTIONAL_URL", null)` |
+| Enum values | `field("DAY", java.time.DayOfWeek.MONDAY)` (JVM) |
+| `UByte`, `UShort`, `UInt`, `ULong` | `field("MAX_ID", ULong.MAX_VALUE)` |
 
-### Lists, maps, and arrays
+### Lists, sets, maps, and arrays
 
 Collections generate ordinary `val` properties initialized with `listOf`,
-`mapOf`, or an array factory. They work with providers, build-type overrides,
+`setOf`, `mapOf`, or an array factory. They work with providers, build-type overrides,
 dimension variants, `common {}`, and flat dimensions:
 
 ```kotlin
@@ -174,15 +178,52 @@ val ROUTES: Map<String, List<String>> = mapOf<String, List<String>>("primary" to
 Arrays of non-null primitive elements are specialized: `Array<Int>` generates
 `IntArray` with `intArrayOf`. The same applies to Boolean, Byte, Short, Char,
 Long, Float, and Double. Existing primitive arrays retain their primitive type.
-Nullable arrays such as `Array<Int?>` stay generic. Specialization also applies
+Arrays with nullable elements such as `Array<Int?>` stay generic. Specialization also applies
 inside nested collections, so `List<Array<Int>>` generates `List<IntArray>`.
 
 Empty collections retain the type supplied in the DSL. Nullable elements,
-nested lists/maps/arrays, and mixed values explicitly typed as `Any` are
+nested lists/sets/maps/arrays, and mixed values explicitly typed as `Any` are
 supported; values must ultimately be supported scalars or collections.
-Custom objects and sets are rejected. Lists and maps expose read-only Kotlin
+Custom objects other than enums are rejected. Lists, sets, and maps expose read-only Kotlin
 interfaces; generated arrays are mutable. Collection properties are not `const`.
 Build-type scope overrides must keep the declared field type.
+
+### Array policies
+
+```kotlin
+konfig {
+    specializeArrays = false   // Keep Array<Int> as Array<Int>; default is true
+    copyArraysOnAccess = true  // Return fresh array-containing values; default is false
+    field("RETRIES", arrayOf(1, 3, 5))
+}
+```
+
+Explicit primitive arrays such as `intArrayOf(1, 2)` stay primitive under either
+policy. Both policies apply recursively inside collections. With copying enabled,
+an array-containing field uses a getter that recreates the whole value on every
+access. This prevents a caller's array mutations from affecting later reads, at
+the cost of allocations. Fields without arrays retain their usual declarations.
+
+### Nullable fields, enums, and unsigned numbers
+
+```kotlin
+konfig {
+    field<String?>("OPTIONAL_URL", null).debug("http://localhost")
+    field<String?>("TOKEN", providers.gradleProperty("token"))
+    field("MAX_ID", ULong.MAX_VALUE)
+}
+```
+
+An explicit `null` generates a present nullable `val`. An absent Gradle provider
+still omits the field; Gradle providers cannot carry a present null. Specify the
+nullable type explicitly, including in `debug {}` / `release {}` declarations
+that override a nullable field. Nullable properties are ordinary `val` properties.
+
+Enums generate a qualified reference such as `java.time.DayOfWeek.MONDAY` and
+support nullable values and nesting in collections. The enum must be accessible
+both from the build script and from the consuming source set. A build-script-only
+enum is not automatically copied into application code. Unsigned scalar numbers
+and collections of those numbers are supported; unsigned array classes are not.
 
 ### Build-type overrides
 
@@ -334,6 +375,39 @@ Project-path segments such as `:prod:` are excluded from task-name detection.
 Android application/library projects select flavors by the exact Android
 dimension name, so `dimension("env")` maps to the Android `env` flavor dimension.
 Explicit Gradle properties and `konfig.properties` still take precedence.
+
+### Strict resolution and schema validation
+
+All new validation settings are opt-in:
+
+```kotlin
+konfig {
+    strictResolution = true
+    validateVariantSchema = true
+    dimension("env", defaultTo = "prod") {
+        required = true
+        androidDimension = "environment"
+        common { field("TIMEOUT", 30) }
+        variant("prod") { field("URL", "https://example.com") }
+        variant("dev") { field("URL", "http://localhost") }
+    }
+}
+```
+
+- `strictResolution` rejects unknown explicit build types, unknown dimension
+  property names, and missing or unknown dimension selections. A valid `defaultTo`
+  satisfies the selection requirement. Existing build-type defaults still apply
+  when no build type is explicitly supplied.
+- `required` requires a selection for just that dimension, even when global
+  strict resolution is disabled. Its default is `false`.
+- `validateVariantSchema` checks effective field names and declared types across
+  every variant and both DEBUG/RELEASE contexts, including inactive variants and
+  `common {}` fallback fields. It also checks global fields across build types.
+  Missing provider values count as absent fields. Field values may differ.
+- `androidDimension` maps a Konfig dimension to an Android flavor dimension with
+  a different name. It defaults to the Konfig dimension name. Explicit selection
+  properties still use the Konfig name, such as `-Pkonfig.dimension.env=dev`, and
+  override Android metadata. The alias does not change JVM/KMP task-name matching.
 
 ### Selection logging
 

@@ -31,6 +31,15 @@ class DimensionConfig @PublishedApi internal constructor(
     /** When true, fields are generated at the root of the konfig object instead of a nested object. */
     val flat: Boolean = false,
 ) {
+    /** Require a selected variant even when global strict resolution is disabled. */
+    var required: Boolean = false
+
+    /** Android flavor dimension to read; defaults to this Konfig dimension's name. */
+    var androidDimension: String = dimensionName
+        set(value) {
+            require(value.isNotBlank() && value.none { it.isISOControl() }) { "konfig: Android dimension alias must not be blank or contain control characters" }
+            field = value
+        }
     /** All named variants. */
     @PublishedApi
     internal val variants: MutableMap<String, VariantConfig> = mutableMapOf()

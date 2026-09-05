@@ -87,10 +87,10 @@ class ConsumerIntegrationFunctionalTest : FunctionalTestBase() {
                     sourceCompatibility = JavaVersion.VERSION_17
                     targetCompatibility = JavaVersion.VERSION_17
                 }
-                flavorDimensions += "env"
+                flavorDimensions += "environment"
                 productFlavors {
-                    create("prod") { dimension = "env" }
-                    create("preProd") { dimension = "env" }
+                    create("prod") { dimension = "environment" }
+                    create("preProd") { dimension = "environment" }
                 }
                 publishing { singleVariant("prodRelease") { withSourcesJar() } }
             }
@@ -100,6 +100,8 @@ class ConsumerIntegrationFunctionalTest : FunctionalTestBase() {
             konfig {
                 objectPackage = "com.example"
                 dimension("env") {
+                    androidDimension = "environment"
+                    required = true
                     variant("prod") { field("URL", "production") }
                     variant("preProd") { field("URL", "preproduction") }
                 }
@@ -123,6 +125,15 @@ class ConsumerIntegrationFunctionalTest : FunctionalTestBase() {
         listOf("ProdDebug", "ProdRelease", "PreProdDebug", "PreProdRelease").forEach {
             assertNotNull(aggregate.task(":generate${it}Konfig"))
         }
+        val explicitArgs = listOf("generateProdDebugKonfig", "-Pkonfig.dimension.env=preProd", "--configuration-cache")
+        run(explicitArgs)
+        assertTrue(run(explicitArgs).output.contains("Configuration cache entry reused"))
+        assertTrue(dir.resolve("build/generated/konfig/prodDebug/com/example/BuildKonfig.kt").readText()
+            .contains("const val VARIANT: String = \"preProd\""))
+        dir.resolve("konfig.properties").writeText("konfig.dimension.env=prod")
+        run(listOf("generatePreProdReleaseKonfig"))
+        assertTrue(dir.resolve("build/generated/konfig/preProdRelease/com/example/BuildKonfig.kt").readText()
+            .contains("const val VARIANT: String = \"prod\""))
     }
 
     private fun File.consumerSettings() {

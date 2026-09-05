@@ -3,12 +3,12 @@ package com.bitsycore.konfig.types
 import java.lang.reflect.Array as JavaArray
 
 /** Produces code only from supported values and validated type descriptors. */
-internal object CollectionLiteral {
+internal class CollectionLiteral(private val specializeArrays: Boolean = true) {
     private val primitives = setOf("Boolean", "Byte", "Short", "Char", "Int", "Long", "Float", "Double")
 
     fun type(type: FieldValueType): String {
         val element = type.arguments.singleOrNull()
-        val base = if (type.name == "Array" && element != null && !element.nullable && element.name in primitives) {
+        val base = if (specializeArrays && type.name == "Array" && element != null && !element.nullable && element.name in primitives) {
             "${element.name}Array"
         } else {
             type.name + if (type.arguments.isEmpty()) "" else type.arguments.joinToString(", ", "<", ">", transform = ::type)
@@ -22,11 +22,17 @@ internal object CollectionLiteral {
             return "null"
         }
         if (declared.name == "Any") return dynamicValue(value)
+        if (declared.enumType) {
+            require(value is Enum<*> && value.declaringJavaClass.canonicalName == declared.name) {
+                "konfig: expected enum ${type(declared)}"
+            }
+            return enumLiteral(value)
+        }
         return when (declared.name) {
-            "List" -> {
-                require(value is List<*>) { "konfig: expected ${type(declared)}" }
+            "List", "Set" -> {
+                require(if (declared.name == "Set") value is Set<*> else value is List<*>) { "konfig: expected ${type(declared)}" }
                 val element = declared.arguments.single()
-                value.joinToString(", ", "listOf<${type(element)}>(", ")") { value(it, element) }
+                (value as Collection<*>).joinToString(", ", "${declared.name.lowercase()}Of<${type(element)}>(", ")") { value(it, element) }
             }
             "Map" -> {
                 require(value is Map<*, *>) { "konfig: expected ${type(declared)}" }
@@ -39,7 +45,7 @@ internal object CollectionLiteral {
                 require(value.javaClass.isArray) { "konfig: expected ${type(declared)}" }
                 val element = if (declared.name == "Array") declared.arguments.single()
                     else FieldValueType(declared.name.removeSuffix("Array"))
-                val primitive = !element.nullable && element.name in primitives
+                val primitive = (specializeArrays || declared.name != "Array") && !element.nullable && element.name in primitives
                 val factory = if (primitive) "${element.name.replaceFirstChar { it.lowercase() }}ArrayOf"
                     else "arrayOf<${type(element)}>"
                 (0 until JavaArray.getLength(value)).joinToString(", ", "$factory(", ")") {
@@ -58,6 +64,7 @@ internal object CollectionLiteral {
     }
 
     private fun dynamicValue(value: Any): String = when (value) {
+        is Set<*> -> value(value, FieldValueType("Set", listOf(FieldValueType("Any", nullable = true))))
         is List<*> -> value(value, FieldValueType("List", listOf(FieldValueType("Any", nullable = true))))
         is Map<*, *> -> value(value, FieldValueType("Map", List(2) { FieldValueType("Any", nullable = true) }))
         else -> if (value.javaClass.isArray) {
@@ -67,11 +74,16 @@ internal object CollectionLiteral {
                 "char" -> "Char"
                 else -> component.name.replaceFirstChar { it.uppercase() }
             }) else FieldValueType("Any", nullable = true)
-            value(value, FieldValueType("Array", listOf(element)))
+            value(value, if (component.isPrimitive) FieldValueType("${element.name}Array") else FieldValueType("Array", listOf(element)))
         } else scalar(value)
     }
 
     private fun scalar(value: Any): String = when (value) {
+        is Enum<*> -> enumLiteral(value)
+        is UByte -> "${value}u.toUByte()"
+        is UShort -> "${value}u.toUShort()"
+        is UInt -> "${value}u"
+        is ULong -> "${value}uL"
         is String -> value.toKotlinStringLiteral()
         is Char -> "'${escape(value, charLiteral = true)}'"
         is Boolean, is Int -> value.toString()
@@ -91,6 +103,14 @@ internal object CollectionLiteral {
             else -> value.toString()
         }
         else -> error("konfig: unsupported collection value type '${value.javaClass.name}'")
+    }
+
+    private fun enumLiteral(value: Enum<*>): String {
+        val name = requireNotNull(value.declaringJavaClass.canonicalName) { "konfig: enum must have a qualified name" }
+        require(name.split('.').all { it.isValidKotlinIdentifier() } && value.name.isValidKotlinIdentifier()) {
+            "konfig: enum '$name.${value.name}' must have Kotlin-compatible names"
+        }
+        return "$name.${value.name}"
     }
 }
 

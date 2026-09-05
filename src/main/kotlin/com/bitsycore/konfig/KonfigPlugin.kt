@@ -4,6 +4,7 @@ package com.bitsycore.konfig
 
 import com.android.build.api.variant.AndroidComponentsExtension
 import com.bitsycore.konfig.configs.DimensionConfig
+import com.bitsycore.konfig.configs.NullFieldValue
 import com.bitsycore.konfig.configs.FieldConfig
 import com.bitsycore.konfig.types.BuildType
 import com.bitsycore.konfig.types.Visibility
@@ -25,6 +26,7 @@ private data class DimensionContext(
 	val flavorDetect: Boolean,
 	val taskNames: List<String>,
 	val androidFlavors: Map<String, String> = emptyMap(),
+	val strict: Boolean = false,
 )
 
 class KonfigPlugin : Plugin<Project> {
@@ -82,8 +84,13 @@ class KonfigPlugin : Plugin<Project> {
 		// =========================================================================
 
 		val rawBuildTypeProp = project.providers.gradleProperty("konfig.buildtype")
-		val buildTypeProvider: Provider<BuildType> = rawBuildTypeProp
-			.map { BuildType.resolve(it) ?: BuildType.RELEASE }
+		val strictProvider = project.providers.provider { extension.strictResolution }
+		val explicitBuildType = rawBuildTypeProp.zip(strictProvider) { raw, strict ->
+			val resolved = BuildType.resolve(raw)
+			require(!strict || resolved != null) { "konfig: unknown build type '$raw'; use DEBUG or RELEASE" }
+			resolved ?: BuildType.RELEASE
+		}
+		val buildTypeProvider: Provider<BuildType> = explicitBuildType
 			.orElse(
 				buildTypeDetectionEnabled.zip(taskNamesProvider) { enabled, names ->
 					if (enabled) BuildType.resolveTasks(names) ?: BuildType.RELEASE
@@ -125,7 +132,7 @@ class KonfigPlugin : Plugin<Project> {
 			.zip(flavorDetectionEnabled) { (gp, fp), fe -> Triple(gp, fp, fe) }
 			.zip(taskNamesProvider) { (gp, fp, fe), names ->
 				DimensionContext(gradleProps = gp, fileProps = fp, flavorDetect = fe, taskNames = names)
-			}
+			}.zip(strictProvider) { ctx, strict -> ctx.copy(strict = strict) }
 
 		// =========================================================================
 		// MARK: Build-script query wiring (konfig.isDebug / konfig.getCurrentDimension)
@@ -135,7 +142,7 @@ class KonfigPlugin : Plugin<Project> {
 		extension.dimensionResolverInternal = { dimName ->
 			combinedProps.map { ctx ->
 				extension.dimensions.firstOrNull { it.dimensionName == dimName }?.let { dim ->
-					resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors)
+					resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors, ctx.strict)
 				}
 			}
 		}
@@ -155,7 +162,15 @@ class KonfigPlugin : Plugin<Project> {
 		): TaskProvider<GenerateKonfigTask> {
 			val dimensionResolutionLogProvider = buildTypeProvider.zip(combinedProps) { _, ctx ->
 				extension.dimensions.associate { dim ->
-					dim.dimensionName to resolveWithSource(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors)
+					dim.dimensionName to resolveWithSource(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors, ctx.strict)
+				} + buildMap {
+					if (extension.validateVariantSchema) validateSchemas(extension).forEachIndexed { index, error ->
+						put("schema[$index]", "ERROR\t\t$error")
+					}
+					if (ctx.strict) (ctx.gradleProps.keys + ctx.fileProps.keys.filter { it.startsWith("konfig.dimension.") })
+						.map { it.removePrefix("konfig.dimension.") }.distinct()
+						.filter { name -> extension.dimensions.none { it.dimensionName == name } }
+						.forEach { put(it, "ERROR\t\tunknown dimension '$it'") }
 				}
 			}
 
@@ -196,13 +211,13 @@ class KonfigPlugin : Plugin<Project> {
 					objectVisibility.set(extension.objectVisibilityProp)
 
 					// ── Global fields ─────────────────────────────────────────────
-					globalFields.set(resolveFields(buildTypeProvider, extension.globalFields))
+					globalFields.set(resolveFields(buildTypeProvider, extension.globalFields, extension))
 
 					// ── Dimension metadata ────────────────────────────────────────
 					activeDimensionNames.set(
 						buildTypeProvider.zip(combinedProps) { _, ctx ->
 							extension.dimensions.mapNotNull { dim ->
-								resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors)
+								resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors, ctx.strict)
 									?: return@mapNotNull null
 								dim.dimensionName
 							}
@@ -216,7 +231,7 @@ class KonfigPlugin : Plugin<Project> {
 					dimensionActiveVariants.set(
 						buildTypeProvider.zip(combinedProps) { _, ctx ->
 							extension.dimensions.mapNotNull { dim ->
-								val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors)
+								val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors, ctx.strict)
 									?: return@mapNotNull null
 								dim.dimensionName to sv
 							}.toMap()
@@ -255,7 +270,7 @@ class KonfigPlugin : Plugin<Project> {
 						val suffix = variantName.replaceFirstChar { it.uppercase() }
 						val androidBuildType = if (variant.debuggable) BuildType.DEBUG else BuildType.RELEASE
 						val flavors = variant.productFlavors.toMap()
-						val selectedType = rawBuildTypeProp.map { BuildType.resolve(it) ?: BuildType.RELEASE }
+						val selectedType = explicitBuildType
 							.orElse(buildTypeDetectionEnabled.map { if (it) androidBuildType else BuildType.RELEASE })
 						val source = rawBuildTypeProp.map { "explicit property -Pkonfig.buildtype=$it" }
 							.orElse(buildTypeDetectionEnabled.map { enabled ->
@@ -302,11 +317,13 @@ class KonfigPlugin : Plugin<Project> {
 		flavorDetect: Boolean,
 		taskNames: List<String>,
 		androidFlavors: Map<String, String> = emptyMap(),
+		strict: Boolean = false,
 	): String? {
-		val encoded = resolveWithSource(dim, gradleProps, fileProps, flavorDetect, taskNames, androidFlavors)
+		val encoded = resolveWithSource(dim, gradleProps, fileProps, flavorDetect, taskNames, androidFlavors, strict)
 		val parts   = encoded.split("\t", limit = 3)
 		return when (parts[0]) {
 			"OK" -> parts.getOrNull(1)?.takeIf { it.isNotEmpty() }
+			"ERROR" -> throw org.gradle.api.GradleException("konfig: dimension '${dim.dimensionName}': ${parts.getOrElse(2) { "resolution failed" }}")
 			else -> null
 		}
 	}
@@ -328,6 +345,18 @@ class KonfigPlugin : Plugin<Project> {
 		flavorDetect: Boolean,
 		taskNames: List<String>,
 		androidFlavors: Map<String, String> = emptyMap(),
+		strict: Boolean = false,
+	): String {
+		val result = resolveUnchecked(dim, gradleProps, fileProps, flavorDetect, taskNames, androidFlavors)
+		if ((strict || dim.required) && (result.startsWith("SKIP") || result.startsWith("WARN"))) {
+			return "ERROR\t\tdimension selection is required: " + result.substringAfter('\t').substringAfter('\t')
+		}
+		return result
+	}
+
+	private fun resolveUnchecked(
+		dim: DimensionConfig, gradleProps: Map<String, String>, fileProps: Map<String, String>,
+		flavorDetect: Boolean, taskNames: List<String>, androidFlavors: Map<String, String>,
 	): String {
 		// Validate defaultTo at resolution time
 		if (dim.defaultVariant != null && !dim.variants.containsKey(dim.defaultVariant)) {
@@ -361,8 +390,8 @@ class KonfigPlugin : Plugin<Project> {
 
 		// Priority 3: exact Android flavor mapping, or task names for shared generation.
 		if (flavorDetect) {
-			val flavor = androidFlavors[dim.dimensionName]
-			if (flavor != null) return if (flavor in dim.variants) "OK\t$flavor\tAndroid flavor '${dim.dimensionName}=$flavor'"
+			val flavor = androidFlavors[dim.androidDimension]
+			if (flavor != null) return if (flavor in dim.variants) "OK\t$flavor\tAndroid flavor '${dim.androidDimension}=$flavor'"
 				else "ERROR\t\tAndroid flavor '$flavor' is not a known variant for dimension '${dim.dimensionName}'"
 		}
 
@@ -403,8 +432,9 @@ class KonfigPlugin : Plugin<Project> {
 	private fun resolveFields(
 		buildType: Provider<BuildType>,
 		fields: List<FieldConfig<*>>,
+		extension: KonfigExtension,
 	): Provider<Map<String, String>> = buildType.map { bt ->
-		fields.mapNotNull { field -> encodeField(field, bt) }.toMap()
+		fields.mapNotNull { field -> encodeField(field, bt, extension) }.toMap()
 	}
 
 	private fun resolveDimensionFields(
@@ -415,22 +445,24 @@ class KonfigPlugin : Plugin<Project> {
 		buildType.zip(combined) { bt, ctx ->
 			buildMap {
 				for (dim in extension.dimensions) {
-					val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors) ?: continue
+					val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames, ctx.androidFlavors, ctx.strict) ?: continue
 					val vc = dim.variants[sv] ?: continue
 					val prefix = "${dim.dimensionName}|"
 					for (field in mergeVariantFields(dim.commonConfig.fields, vc.fields)) {
-						encodeField(field, bt)?.let { (name, value) -> put("$prefix$name", value) }
+						encodeField(field, bt, extension)?.let { (name, value) -> put("$prefix$name", value) }
 					}
 				}
 			}
 		}
 
 	/** Encodes a [FieldConfig] value for [buildType] as `"TYPE:rawValue"`, or `null` if absent. */
-	private fun encodeField(field: FieldConfig<*>, buildType: BuildType): Pair<String, String>? {
+	private fun encodeField(field: FieldConfig<*>, buildType: BuildType, extension: KonfigExtension): Pair<String, String>? {
 		val value = field.resolve(buildType)?.orNull ?: return null
-		if (value is List<*> || value is Map<*, *> || value.javaClass.isArray || value is Byte || value is Short || value is Char) {
-			val type = requireNotNull(field.valueType) { "konfig: missing type for field '${field.fieldName}'" }
-			val encoded = "Value:${CollectionLiteral.type(type)}\n${CollectionLiteral.value(value, type)}"
+		val type = requireNotNull(field.valueType) { "konfig: missing type for field '${field.fieldName}'" }
+		if (type.nullable || type.name !in setOf("String", "Boolean", "Int", "Long", "Float", "Double")) {
+			val literal = CollectionLiteral(extension.specializeArrays)
+			val tag = if (extension.copyArraysOnAccess && containsArray(value)) "Getter" else "Value"
+			val encoded = "$tag:${literal.type(type)}\n${literal.value(if (value is NullFieldValue) null else value, type)}"
 			return field.fieldName to encoded
 		}
 		val encoded = when (value) {
@@ -443,6 +475,33 @@ class KonfigPlugin : Plugin<Project> {
 			else       -> error("konfig: unsupported value type '${value.javaClass.name}' for field '${field.fieldName}'")
 		}
 		return field.fieldName to encoded
+	}
+
+	private fun containsArray(value: Any?): Boolean = when (value) {
+		null -> false
+		is Map<*, *> -> value.any { containsArray(it.key) || containsArray(it.value) }
+		is Collection<*> -> value.any { containsArray(it) }
+		else -> value.javaClass.isArray
+	}
+
+	private fun validateSchemas(extension: KonfigExtension): List<String> = buildList {
+		fun schema(fields: List<FieldConfig<*>>, bt: BuildType) = fields
+			.filter { it.resolve(bt)?.isPresent == true }.associate { it.fieldName to it.valueType }
+		val globalDebug = schema(extension.globalFields, BuildType.DEBUG)
+		if (globalDebug != schema(extension.globalFields, BuildType.RELEASE))
+			add("global fields differ between DEBUG and RELEASE")
+		extension.dimensions.forEach { dim ->
+			val schemas = dim.variants.flatMap { (name, config) -> BuildType.entries.map { bt ->
+				"$name/${bt.name}" to schema(mergeVariantFields(dim.commonConfig.fields, config.fields), bt)
+			} }
+			val baseline = schemas.firstOrNull() ?: return@forEach
+			schemas.drop(1).filter { it.second != baseline.second }.forEach { (name, fields) ->
+				val missing = baseline.second.keys - fields.keys
+				val extra = fields.keys - baseline.second.keys
+				val changed = fields.keys.intersect(baseline.second.keys).filter { fields[it] != baseline.second[it] }
+				add("dimension '${dim.dimensionName}' schema '$name' differs from '${baseline.first}': missing=$missing, extra=$extra, different types=$changed")
+			}
+		}
 	}
 
 	// ==============================================================================

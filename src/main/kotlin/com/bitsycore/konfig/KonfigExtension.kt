@@ -49,6 +49,18 @@ abstract class KonfigExtension @Inject constructor(
     /** Output directory — kept as [DirectoryProperty] for full Gradle lazy semantics. */
     val outputDir: DirectoryProperty = objects.directoryProperty()
 
+    /** Reject missing/unknown dimension selections and invalid explicit build types. */
+    var strictResolution: Boolean = false
+
+    /** Check effective field names/types across all variants and both build types. */
+    var validateVariantSchema: Boolean = false
+
+    /** Specialize Array<Int> and other non-null primitive arrays. Explicit IntArray stays primitive. */
+    var specializeArrays: Boolean = true
+
+    /** Recreate array-containing values on each access, including arrays nested in collections. */
+    var copyArraysOnAccess: Boolean = false
+
     // ==============================================================================
     // MARK: DSL Internal
     // ==============================================================================
@@ -103,14 +115,14 @@ abstract class KonfigExtension @Inject constructor(
         dimensions.add(d)
     }
 
-    inline fun <reified T : Any> field(
+    inline fun <reified T> field(
         name: String,
         default: T,
     ) = globalScope.field(name, default)
 
-    inline fun <reified T : Any> field(
+    inline fun <reified T> field(
         name: String,
-        default: Provider<T>,
+        default: Provider<T & Any>,
     ) = globalScope.field(name, default)
 
     fun debug(block: BuildTypedFieldDeclScope.() -> Unit)   = globalScope.debug(block)
