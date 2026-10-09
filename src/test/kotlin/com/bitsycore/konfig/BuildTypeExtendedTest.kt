@@ -170,4 +170,18 @@ class BuildTypeExtendedTest {
     @Test fun `exactly two build types exist`() {
         assertEquals(2, BuildType.entries.size)
     }
+
+    // ── Default when no task names a build type ──────────────────────────────
+
+    @Test fun `an IDE sync with no task defaults to DEBUG`() {
+        assertEquals(BuildType.DEBUG, BuildType.defaultFor(emptyList(), ideSync = false))
+    }
+
+    @Test fun `an IDE sync running its own helper tasks defaults to DEBUG`() {
+        assertEquals(BuildType.DEBUG, BuildType.defaultFor(listOf("prepareKotlinBuildScriptModel"), ideSync = true))
+    }
+
+    @Test fun `a real build naming no build type stays RELEASE`() {
+        assertEquals(BuildType.RELEASE, BuildType.defaultFor(listOf("generateKonfig"), ideSync = false))
+    }
 }

@@ -74,6 +74,12 @@ class KonfigPlugin : Plugin<Project> {
 			.map { it != "false" }
 			.orElse(project.providers.provider { true })
 
+		// IntelliJ / Android Studio set this while syncing; the sync's own helper tasks name no build type.
+		val ideSyncProvider: Provider<Boolean> = project.providers
+			.systemProperty("idea.sync.active")
+			.map { it.toBoolean() }
+			.orElse(false)
+
 		val flavorDetectionEnabled: Provider<Boolean> = project.providers
 			.gradleProperty("konfig.android.flavordetection")
 			.map { it != "false" }
@@ -92,10 +98,11 @@ class KonfigPlugin : Plugin<Project> {
 		}
 		val buildTypeProvider: Provider<BuildType> = explicitBuildType
 			.orElse(
-				buildTypeDetectionEnabled.zip(taskNamesProvider) { enabled, names ->
-					if (enabled) BuildType.resolveTasks(names) ?: BuildType.RELEASE
-					else BuildType.RELEASE
-				}
+				buildTypeDetectionEnabled.zip(taskNamesProvider) { enabled, names -> enabled to names }
+					.zip(ideSyncProvider) { (enabled, names), ideSync ->
+						if (enabled) BuildType.resolveTasks(names) ?: BuildType.defaultFor(names, ideSync)
+						else BuildType.RELEASE
+					}
 			)
 
 		// =========================================================================
@@ -110,19 +117,18 @@ class KonfigPlugin : Plugin<Project> {
 				else                  "explicit property -Pkonfig.buildtype=$raw (unrecognized value, fell back to RELEASE)"
 			}
 			.orElse(
-				buildTypeDetectionEnabled.zip(taskNamesProvider) { enabled, names ->
-					when {
-						!enabled -> "detection disabled by konfig.android.buildtypedetection=false, using RELEASE"
-						names.isEmpty() -> "no tasks running, using RELEASE"
-						else -> {
-							val resolved = BuildType.resolveTasks(names)
-							if (resolved != null)
+				buildTypeDetectionEnabled.zip(taskNamesProvider) { enabled, names -> enabled to names }
+					.zip(ideSyncProvider) { (enabled, names), ideSync ->
+						val resolved = if (enabled) BuildType.resolveTasks(names) else null
+						when {
+							!enabled -> "detection disabled by konfig.android.buildtypedetection=false, using RELEASE"
+							resolved != null ->
 								"task-name detection matched ${resolved.name.lowercase()} in [${names.joinToString()}]"
-							else
-								"no debug/release pattern found in tasks [${names.joinToString()}], using RELEASE"
+							ideSync -> "IDE sync (idea.sync.active), using DEBUG"
+							names.isEmpty() -> "no tasks running (IDE sync), using DEBUG"
+							else -> "no debug/release pattern found in tasks [${names.joinToString()}], using RELEASE"
 						}
 					}
-				}
 			)
 
 		// Combined provider for dimension resolvers
@@ -277,7 +283,9 @@ class KonfigPlugin : Plugin<Project> {
 								if (enabled) "Android variant '$variantName' (debuggable=${androidBuildType == BuildType.DEBUG})"
 								else "detection disabled, using RELEASE"
 							})
-						val context = combinedProps.map { ctx -> ctx.copy(taskNames = emptyList(), androidFlavors = flavors) }
+						// The variant's own flavor wins; a variant without that dimension (a library shared by
+						// flavored apps) falls back to the requested task names, as JVM/KMP generation does.
+						val context = combinedProps.map { ctx -> ctx.copy(androidFlavors = flavors) }
 						val variantTask = registerGeneration("generate${suffix}Konfig", "konfig${suffix}Info", selectedType, source, context)
 						// External KGP (AGP 8) consumes generated Kotlin through the Java source API;
 						// AGP's built-in Kotlin consumes the dedicated Kotlin source API.
@@ -388,14 +396,15 @@ class KonfigPlugin : Plugin<Project> {
 			}
 		}
 
-		// Priority 3: exact Android flavor mapping, or task names for shared generation.
+		// Priority 3: exact Android flavor mapping, or task names (shared generation, and Android
+		// variants that lack the dimension).
 		if (flavorDetect) {
 			val flavor = androidFlavors[dim.androidDimension]
 			if (flavor != null) return if (flavor in dim.variants) "OK\t$flavor\tAndroid flavor '${dim.androidDimension}=$flavor'"
 				else "ERROR\t\tAndroid flavor '$flavor' is not a known variant for dimension '${dim.dimensionName}'"
 		}
 
-		// Shared generation: task-name detection
+		// Task-name detection: shared generation, or an Android variant without that flavor dimension
 		if (flavorDetect && taskNames.isNotEmpty()) {
 			// Resolve overlap within EACH task; separate prod and preProd tasks conflict.
 			val matches = taskNames.flatMap { qualifiedTask ->

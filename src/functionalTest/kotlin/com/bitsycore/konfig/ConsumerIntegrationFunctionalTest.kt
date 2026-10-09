@@ -17,6 +17,7 @@ import kotlin.test.assertTrue
 class ConsumerIntegrationFunctionalTest : FunctionalTestBase() {
     private val kotlinVersion = System.getProperty("konfig.test.kotlinVersion", "2.3.0")
     private val androidVersion = System.getProperty("konfig.test.androidVersion", "9.3.2")
+    private val compileSdk = System.getProperty("konfig.test.compileSdk", "35")
 
     @Test fun `JVM compilation and source publication carry generation dependencies`() = withProject { dir, _ ->
         val run = consumerRunner(dir)
@@ -65,8 +66,8 @@ class ConsumerIntegrationFunctionalTest : FunctionalTestBase() {
         val run = consumerRunner(dir, android = true)
         val sdk = sequenceOf(System.getenv("ANDROID_HOME"), System.getenv("ANDROID_SDK_ROOT"),
             "${System.getProperty("user.home")}/AppData/Local/Android/Sdk").filterNotNull().map(::File)
-            .firstOrNull { it.resolve("platforms/android-35/android.jar").isFile }
-        assumeTrue("Android SDK platform 35 is required for Android integration tests", sdk != null)
+            .firstOrNull { it.resolve("platforms/android-$compileSdk/android.jar").isFile }
+        assumeTrue("Android SDK platform $compileSdk is required for Android integration tests", sdk != null)
         dir.consumerSettings()
         dir.resolve("local.properties").writeText("sdk.dir=${sdk!!.invariantSeparatorsPath}")
         dir.resolve("src/main/AndroidManifest.xml").apply { parentFile.mkdirs(); writeText("<manifest />") }
@@ -81,7 +82,7 @@ class ConsumerIntegrationFunctionalTest : FunctionalTestBase() {
             repositories { google(); mavenCentral() }
             android {
                 namespace = "com.example"
-                compileSdk = 35
+                compileSdk = $compileSdk
                 defaultConfig { minSdk = 21 }
                 compileOptions {
                     sourceCompatibility = JavaVersion.VERSION_17
@@ -135,6 +136,54 @@ class ConsumerIntegrationFunctionalTest : FunctionalTestBase() {
         assertTrue(dir.resolve("build/generated/konfig/preProdRelease/com/example/BuildKonfig.kt").readText()
             .contains("const val VARIANT: String = \"prod\""))
     }
+
+    @Test fun `Android library without the flavor dimension takes it from the requested tasks`() = withProject { dir, _ ->
+        val run = consumerRunner(dir, android = true)
+        val sdk = androidSdk()
+        assumeTrue("Android SDK platform $compileSdk is required for Android integration tests", sdk != null)
+        dir.consumerSettings()
+        dir.resolve("local.properties").writeText("sdk.dir=${sdk!!.invariantSeparatorsPath}")
+        dir.resolve("src/main/AndroidManifest.xml").apply { parentFile.mkdirs(); writeText("<manifest />") }
+        val externalKotlin = if (androidVersion.startsWith("8.")) "kotlin(\"android\") version \"$kotlinVersion\"" else ""
+        // A library shared by flavored apps has no flavor of its own: the app's task names the env.
+        dir.writeConsumerBuildGradle("""
+            plugins {
+                id("com.android.library") version "$androidVersion"
+                $externalKotlin
+                id("com.bitsycore.konfig")
+            }
+            repositories { google(); mavenCentral() }
+            android {
+                namespace = "com.example"
+                compileSdk = $compileSdk
+                defaultConfig { minSdk = 21 }
+            }
+            tasks.register("assemblePreProdForApp") { dependsOn("generateDebugKonfig") }
+            tasks.register("assembleProdForApp") { dependsOn("generateDebugKonfig") }
+            konfig {
+                objectPackage = "com.example"
+                dimension("env", defaultTo = "prod") {
+                    variant("prod") { field("URL", "production") }
+                    variant("preProd") { field("URL", "preproduction") }
+                }
+            }
+        """)
+        val generated = dir.resolve("build/generated/konfig/debug/com/example/BuildKonfig.kt")
+        run(listOf("assemblePreProdForApp"))
+        assertTrue(generated.readText().contains("const val VARIANT: String = \"preProd\""), generated.readText())
+        run(listOf("generateDebugKonfig"))
+        assertTrue(generated.readText().contains("const val VARIANT: String = \"prod\""), "no env in the tasks: defaultTo")
+        val conflict = GradleRunner.create().withProjectDir(dir)
+            .withArguments("assemblePreProdForApp", "assembleProdForApp", "--stacktrace")
+            .apply { if (!androidVersion.startsWith("8.")) withGradleVersion("9.5.0") }
+            .buildAndFail()
+        assertTrue(conflict.output.contains("conflicting variants"), conflict.output)
+    }
+
+    /** An Android SDK holding the platform the tests compile against, null when there is none. */
+    private fun androidSdk(): File? = sequenceOf(System.getenv("ANDROID_HOME"), System.getenv("ANDROID_SDK_ROOT"),
+        "${System.getProperty("user.home")}/AppData/Local/Android/Sdk").filterNotNull().map(::File)
+        .firstOrNull { it.resolve("platforms/android-$compileSdk/android.jar").isFile }
 
     private fun File.consumerSettings() {
         writePluginRepository()

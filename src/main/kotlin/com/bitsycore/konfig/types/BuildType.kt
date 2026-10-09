@@ -22,6 +22,13 @@ enum class BuildType(val value: String) {
 			return when { debug -> DEBUG; release -> RELEASE; else -> null }
 		}
 
+		/**
+		 * Build type when no task names one. An IDE sync (no task requested, or `idea.sync.active`)
+		 * gets DEBUG, so the IDE resolves the debug configuration; a real build keeps RELEASE.
+		 */
+		internal fun defaultFor(names: List<String>, ideSync: Boolean): BuildType =
+			if (ideSync || names.isEmpty()) DEBUG else RELEASE
+
 		fun resolve(value: String): BuildType? {
 			enumEntries<BuildType>().firstOrNull { it.name == value }?.let {
 				return it

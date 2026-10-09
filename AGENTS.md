@@ -116,7 +116,7 @@ files and preserve unrelated files on both execution and build-cache restoration
 
 1. Explicit Gradle property: `-Pkonfig.dimension.<name>=<variant>`
 2. `konfig.properties` file in the project directory: `konfig.dimension.<name>=<variant>`
-3. Exact Android flavor-dimension metadata, or camelCase task-name matching for shared JVM/KMP generation (unless `konfig.android.flavordetection=false`)
+3. Exact Android flavor-dimension metadata, or camelCase task-name matching for shared JVM/KMP generation and for Android variants that lack that flavor dimension (unless `konfig.android.flavordetection=false`)
 4. `defaultTo` fallback declared in DSL
 5. **Omitted silently** if none of the above - no crash, dimension object not generated
 
@@ -136,7 +136,7 @@ action can emit structured lifecycle/warning/error log messages without re-runni
 
 | Property                                    | Effect                                                                          |
 |---------------------------------------------|---------------------------------------------------------------------------------|
-| `-Pkonfig.buildtype=DEBUG\|RELEASE`         | Forces build type; falls back to task-name detection then RELEASE               |
+| `-Pkonfig.buildtype=DEBUG\|RELEASE`         | Forces build type; falls back to task-name detection, then DEBUG during an IDE sync (no task, or `idea.sync.active`) and RELEASE otherwise |
 | `-Pkonfig.dimension.<name>=<variant>`       | Selects a dimension variant explicitly                                          |
 | `-Pkonfig.force`                            | Disables UP-TO-DATE checks - task always re-runs (any value or bare flag works) |
 | `-Pkonfig.android.buildtypedetection=false` | Disables task-name build-type detection                                         |
@@ -163,7 +163,7 @@ action can emit structured lifecycle/warning/error log messages without re-runni
 - **Plugin ID:** `com.bitsycore.konfig`
 - **Group:** `com.bitsycore`
 - **Artifact:** `konfig-gradle-plugin`
-- **Version:** set via `konfig.version` in `gradle.properties` (currently `0.7.0`)
+- **Version:** set via `konfig.version` in `gradle.properties` (currently `0.8.0`)
 - **Repositories:** `https://maven.bitsycore.com/releases` (primary, no auth) and
   `https://maven.pkg.github.com/bitsycore/bitsykonfig` (fallback, needs PAT)
 - **JVM target:** 17 (set via `sourceCompatibility` + `KotlinCompile.compilerOptions.jvmTarget`,

@@ -7,7 +7,7 @@ Fields can be constant, overridden per build type (debug/release), or scoped to 
 **Plugin ID:** `com.bitsycore.konfig`  
 **Group:** `com.bitsycore`  
 **Artifact:** `konfig-gradle-plugin`  
-**Version:** `0.7.0`
+**Version:** `0.8.0`
 **JVM target:** 17
 
 ---
@@ -63,7 +63,7 @@ Using a version catalog (`libs.versions.toml`):
 
 ```toml
 [versions]
-konfig = "0.7.0"
+konfig = "0.8.0"
 
 [plugins]
 konfig = { id = "com.bitsycore.konfig", version.ref = "konfig" }
@@ -81,7 +81,7 @@ Or inline:
 
 ```kotlin
 plugins {
-    id("com.bitsycore.konfig") version "0.7.0"
+    id("com.bitsycore.konfig") version "0.8.0"
 }
 ```
 
@@ -343,7 +343,7 @@ Variants are resolved in priority order:
 |----------|--------------------------|------------------------------------------|
 | 1        | Gradle property          | `-Pkonfig.dimension.env=dev`             |
 | 2        | `konfig.properties` file | `konfig.dimension.env=dev`               |
-| 3        | Android flavor metadata, or task names for JVM/KMP | Android flavor dimension `env=dev`, or `assembleDevDebug` |
+| 3        | Android flavor metadata, or task names (JVM/KMP, and Android variants without that flavor) | Android flavor dimension `env=dev`, or `assembleDevDebug` |
 | 4        | `defaultTo` in DSL       | `dimension("env", defaultTo = "prod")`   |
 | -        | Omitted silently         | No variant → no nested object generated  |
 
@@ -374,7 +374,10 @@ Project-path segments such as `:prod:` are excluded from task-name detection.
 
 Android application/library projects select flavors by the exact Android
 dimension name, so `dimension("env")` maps to the Android `env` flavor dimension.
-Explicit Gradle properties and `konfig.properties` still take precedence.
+A variant without that flavor dimension, typically a library shared by flavored
+apps, falls back to task-name detection: building `:app:assembleDevDebug` selects
+`dev` in the library too. Explicit Gradle properties and `konfig.properties` still
+take precedence.
 
 ### Strict resolution and schema validation
 
@@ -430,7 +433,7 @@ Build type is resolved in priority order:
 |----------|---------------------|-----------------------------------|
 | 1        | Explicit property   | `-Pkonfig.buildtype=DEBUG`        |
 | 2        | Android variant metadata, or task names for JVM/KMP | A debuggable Android variant → `DEBUG` |
-| -        | Default             | `RELEASE`                         |
+| -        | Default             | `DEBUG` during an IDE sync (no task requested, or `idea.sync.active`), otherwise `RELEASE` |
 
 Android application/library variants generate separate objects, so aggregate
 tasks and simultaneous debug/release builds are supported. Custom Android build
