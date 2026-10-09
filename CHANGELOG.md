@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0 - 2026-10-09
+
+- Fixed Android variants without the dimension's flavor (a library shared by flavored apps) ignoring the requested tasks: they now fall back to task-name detection, so `:app:assembleDevDebug` selects `dev` in the library too. Variants that have the flavor still resolve on it first.
+- Changed the build type when no task names one during an IDE sync (no task requested, or `idea.sync.active`): `DEBUG` instead of `RELEASE`, so the IDE resolves the debug configuration. A real build naming no build type keeps `RELEASE`.
+- Added the `konfig.test.compileSdk` setting for the Android functional tests.
+
 ## 0.7.0 — 2026-09-06
 
 - Added opt-in `strictResolution`, per-dimension `required`, and cross-variant `validateVariantSchema` checks.
